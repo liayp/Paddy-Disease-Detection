@@ -33,7 +33,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.util.concurrent.Executors
-import kotlin.math.min
 
 @Composable
 fun ScannerContent(
@@ -55,6 +54,11 @@ fun ScannerContent(
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val previewView = remember { PreviewView(context) }
+
+    // State ukuran gambar asli untuk Overlay
+    var sourceWidth by remember { mutableIntStateOf(1) }
+    var sourceHeight by remember { mutableIntStateOf(1) }
+
     var lastInference by remember { mutableLongStateOf(0L) }
 
     DisposableEffect(Unit) { onDispose { analysisExecutor.shutdown() } }
@@ -69,11 +73,9 @@ fun ScannerContent(
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
-            // ANALYZER: Gunakan resolusi KOTAK (640x640) agar sesuai model
             val imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                .setTargetResolution(Size(640, 640))
                 .build()
 
             imageAnalyzer.setAnalyzer(analysisExecutor) { imageProxy ->
@@ -86,16 +88,14 @@ fun ScannerContent(
                         val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
                         val rotated = ImageUtils.rotateBitmap(bmp, rotation)
 
-                        // ----------------------------------------------------
-                        // CROP KOTAK: Samakan input AI dengan tampilan UI Square
-                        // ----------------------------------------------------
-                        val dimension = min(rotated.width, rotated.height)
-                        val x = (rotated.width - dimension) / 2
-                        val y = (rotated.height - dimension) / 2
-                        val squareBitmap = Bitmap.createBitmap(rotated, x, y, dimension, dimension)
+                        // 1. KIRIM GAMBAR UTUH (Sama seperti Python)
+                        // Detector akan me-resize (gepengkan) sendiri secara internal
+                        val results = detector.detect(rotated)
 
-                        val results = detector.detect(squareBitmap)
                         mainHandler.post {
+                            // Update ukuran asli untuk perhitungan Overlay
+                            sourceWidth = rotated.width
+                            sourceHeight = rotated.height
                             onRealtimeDetection(results)
                         }
                     }
@@ -114,7 +114,6 @@ fun ScannerContent(
         }
     }
 
-    // Layout Utama: Putih Bersih
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -124,68 +123,65 @@ fun ScannerContent(
     ) {
         if (hasCameraPermission.value) {
 
-            // === WADAH KOTAK 1:1 (SQUARE) ===
-            // Box ini akan memaksa isinya menjadi kotak
+            // UI KOTAK 1:1
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()        // Lebar penuh
-                    .aspectRatio(1f)       // Rasio 1:1 -> Jadi Kotak
-                    .padding(16.dp)        // Padding agar cantik (tidak nempel pinggir)
-                    .clip(RoundedCornerShape(16.dp)) // Sudut membulat
-                    .background(Color.Black), // Background hitam untuk area kosong
+                    .fillMaxWidth()
+                    .aspectRatio(3/4f)
+                    .padding(16.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
                 if (!showCapturedImage.value && !isGalleryImageShown.value) {
-                    // 1. Preview Kamera
+                    // Preview Live
                     AndroidView(
                         factory = {
                             previewView.apply {
-                                // SCALE TYPE PENTING: FILL_CENTER
-                                // Ini akan memotong (crop) bagian atas-bawah gambar kamera
-                                // agar pas masuk ke kotak 1:1 ini.
-                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                                // FIT_CENTER: Menampilkan SELURUH gambar di dalam kotak
+                                // Tidak ada crop. Gambar mungkin ada bar hitam di samping/atas,
+                                // tapi bounding box akan kita sesuaikan.
+                                scaleType = PreviewView.ScaleType.FIT_CENTER
                             }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // 2. Overlay Kotak Merah
-                    DetectionOverlay(results = detectionResults)
+                    DetectionOverlay(
+                        results = detectionResults,
+                        sourceWidth = sourceWidth,
+                        sourceHeight = sourceHeight
+                    )
 
                 } else {
-                    // 3. Hasil Foto / Galeri
+                    // Hasil Foto
                     val bmp = capturedBitmap.value ?: selectedGalleryBitmap.value
                     if (bmp != null) {
                         Image(
                             bitmap = bmp.asImageBitmap(),
                             contentDescription = "Captured",
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop // Crop juga biar konsisten
+                            contentScale = ContentScale.Fit // Fit juga biar konsisten
                         )
-                        DetectionOverlay(results = detectionResults)
+                        DetectionOverlay(
+                            results = detectionResults,
+                            sourceWidth = bmp.width,
+                            sourceHeight = bmp.height
+                        )
                     }
                 }
 
-                // Tombol Close (X)
+                // Close Button
                 if (showCapturedImage.value || isGalleryImageShown.value) {
-                    IconButton(
-                        onClick = onClearImage,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
-                            .background(Color.Black.copy(0.5f), MaterialTheme.shapes.small)
-                    ) {
+                    IconButton(onClick = onClearImage, modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(0.5f), MaterialTheme.shapes.small)) {
                         Icon(Icons.Default.Close, "Close", tint = Color.White)
                     }
                 }
             }
 
-            // Teks Petunjuk di bawah kotak
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(66.dp))
             Text(
-                text = if (detectionResults.isNotEmpty())
-                    "Terdeteksi: ${detectionResults[0].label} (${(detectionResults[0].score * 100).toInt()}%)"
-                else "Arahkan kamera ke tanaman padi",
+                if (detectionResults.isNotEmpty()) "Terdeteksi ada OPT. Kirim Laporan!" else "Arahkan kamera ke tanaman padi",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.Black
             )

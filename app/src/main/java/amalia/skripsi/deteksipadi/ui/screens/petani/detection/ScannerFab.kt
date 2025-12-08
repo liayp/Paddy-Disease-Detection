@@ -79,7 +79,7 @@ fun ScannerFab(
         shape = CircleShape,
         modifier = Modifier
             .size(56.dp)
-            .offset(y = (-20).dp)
+            .offset(y = (-15).dp)
     ) {
         if (isUploading) {
             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
