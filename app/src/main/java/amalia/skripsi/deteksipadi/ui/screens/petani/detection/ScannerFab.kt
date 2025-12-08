@@ -2,6 +2,7 @@ package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
 import amalia.skripsi.deteksipadi.R
 import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeViewModel
+import amalia.skripsi.deteksipadi.util.ImageUtils
 import android.content.Context
 import android.graphics.Bitmap
 import androidx.camera.core.ImageCapture
@@ -74,7 +75,7 @@ fun ScannerFab(
             }
         },
         // Warna berubah: Hijau (Kamera) -> Biru (Ready)
-        containerColor = if (isImageReady) Color(0xFF2196F3) else Color(0xFF4CB64E),
+        containerColor = if (isImageReady) Color(0xFF21F3DB) else Color(0xFF4CB64E),
         shape = CircleShape,
         modifier = Modifier
             .size(56.dp)

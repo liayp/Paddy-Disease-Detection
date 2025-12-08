@@ -2,6 +2,7 @@ package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
 import amalia.skripsi.deteksipadi.ml.DetectionResult
 import amalia.skripsi.deteksipadi.ml.YoloDetector
+import amalia.skripsi.deteksipadi.util.ImageUtils
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Handler
@@ -14,6 +15,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
@@ -23,38 +25,36 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.LifecycleOwner
-import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.Executors
-import kotlin.system.measureTimeMillis
+import kotlin.math.min
 
 @Composable
 fun ScannerContent(
-    hasCameraPermission: State<Boolean>, // Pake State wrapper sesuai kode asli
+    hasCameraPermission: State<Boolean>,
     showCapturedImage: MutableState<Boolean>,
     capturedBitmap: MutableState<Bitmap?>,
     selectedGalleryBitmap: MutableState<Bitmap?>,
     isGalleryImageShown: MutableState<Boolean>,
-    cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
-    lifecycleOwner: LifecycleOwner,
+    cameraProviderFuture: com.google.common.util.concurrent.ListenableFuture<ProcessCameraProvider>,
+    lifecycleOwner: androidx.lifecycle.LifecycleOwner,
     imageCapture: ImageCapture,
     detectionResults: List<DetectionResult>,
     context: Context,
     detector: YoloDetector?,
     onRealtimeDetection: (List<DetectionResult>) -> Unit,
-    // Param tambahan untuk tombol close
-    onClearImage: () -> Unit = {},
+    onClearImage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val previewView = remember { PreviewView(context) }
-    var realtimeWidth by remember { mutableIntStateOf(1) }
-    var realtimeHeight by remember { mutableIntStateOf(1) }
     var lastInference by remember { mutableLongStateOf(0L) }
 
     DisposableEffect(Unit) { onDispose { analysisExecutor.shutdown() } }
@@ -63,8 +63,13 @@ fun ScannerContent(
         val shouldRunCamera = hasCameraPermission.value && !showCapturedImage.value && !isGalleryImageShown.value
         val cameraProvider = cameraProviderFuture.get()
         cameraProvider.unbindAll()
+
         if (shouldRunCamera) {
-            val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+
+            // ANALYZER: Gunakan resolusi KOTAK (640x640) agar sesuai model
             val imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
@@ -73,22 +78,25 @@ fun ScannerContent(
 
             imageAnalyzer.setAnalyzer(analysisExecutor) { imageProxy ->
                 val now = System.currentTimeMillis()
-                if (now - lastInference < 200) { imageProxy.close(); return@setAnalyzer }
+                if (now - lastInference < 100) { imageProxy.close(); return@setAnalyzer }
                 lastInference = now
                 try {
-                    // FIX: Gunakan ImageUtils untuk hindari crash warna
                     val bmp = ImageUtils.imageProxyToBitmap(imageProxy)
-
                     if (bmp != null && detector != null) {
                         val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
                         val rotated = ImageUtils.rotateBitmap(bmp, rotation)
-                        val time = measureTimeMillis {
-                            val results = detector.detect(rotated)
-                            mainHandler.post {
-                                realtimeWidth = rotated.width
-                                realtimeHeight = rotated.height
-                                onRealtimeDetection(results)
-                            }
+
+                        // ----------------------------------------------------
+                        // CROP KOTAK: Samakan input AI dengan tampilan UI Square
+                        // ----------------------------------------------------
+                        val dimension = min(rotated.width, rotated.height)
+                        val x = (rotated.width - dimension) / 2
+                        val y = (rotated.height - dimension) / 2
+                        val squareBitmap = Bitmap.createBitmap(rotated, x, y, dimension, dimension)
+
+                        val results = detector.detect(squareBitmap)
+                        mainHandler.post {
+                            onRealtimeDetection(results)
                         }
                     }
                 } catch (e: Exception) {
@@ -103,40 +111,87 @@ fun ScannerContent(
             } catch (e: Exception) {
                 Log.e("ScannerContent", "bind failed", e)
             }
-        } else {
-            cameraProvider.unbindAll()
         }
     }
 
-    // UI ASLI (Column) -> Menjamin layout tidak putih kosong
-    Column(modifier = modifier.fillMaxSize().background(Color.White)) {
+    // Layout Utama: Putih Bersih
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.White),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
         if (hasCameraPermission.value) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+
+            // === WADAH KOTAK 1:1 (SQUARE) ===
+            // Box ini akan memaksa isinya menjadi kotak
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()        // Lebar penuh
+                    .aspectRatio(1f)       // Rasio 1:1 -> Jadi Kotak
+                    .padding(16.dp)        // Padding agar cantik (tidak nempel pinggir)
+                    .clip(RoundedCornerShape(16.dp)) // Sudut membulat
+                    .background(Color.Black), // Background hitam untuk area kosong
+                contentAlignment = Alignment.Center
+            ) {
                 if (!showCapturedImage.value && !isGalleryImageShown.value) {
-                    // Preview Kamera
-                    AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
-                    if (realtimeWidth > 1) DetectionOverlay(detectionResults, realtimeWidth, realtimeHeight) // Sesuaikan DetectionOverlay Anda
+                    // 1. Preview Kamera
+                    AndroidView(
+                        factory = {
+                            previewView.apply {
+                                // SCALE TYPE PENTING: FILL_CENTER
+                                // Ini akan memotong (crop) bagian atas-bawah gambar kamera
+                                // agar pas masuk ke kotak 1:1 ini.
+                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // 2. Overlay Kotak Merah
+                    DetectionOverlay(results = detectionResults)
+
                 } else {
-                    // Hasil Foto / Galeri
+                    // 3. Hasil Foto / Galeri
                     val bmp = capturedBitmap.value ?: selectedGalleryBitmap.value
                     if (bmp != null) {
-                        Image(bitmap = bmp.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
-                        // Jika DetectionOverlay butuh parameter lebar/tinggi, sesuaikan disini
-                        DetectionOverlay(detectionResults, bmp.width, bmp.height)
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "Captured",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop // Crop juga biar konsisten
+                        )
+                        DetectionOverlay(results = detectionResults)
                     }
                 }
 
-                // Tombol Close
+                // Tombol Close (X)
                 if (showCapturedImage.value || isGalleryImageShown.value) {
-                    IconButton(onClick = {
-                        onClearImage() // Panggil callback reset
-                    }, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).size(40.dp).background(Color.Black.copy(0.5f), MaterialTheme.shapes.small)) {
-                        Icon(Icons.Default.Close, "Clear", tint = Color.White)
+                    IconButton(
+                        onClick = onClearImage,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(0.5f), MaterialTheme.shapes.small)
+                    ) {
+                        Icon(Icons.Default.Close, "Close", tint = Color.White)
                     }
                 }
             }
+
+            // Teks Petunjuk di bawah kotak
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = if (detectionResults.isNotEmpty())
+                    "Terdeteksi: ${detectionResults[0].label} (${(detectionResults[0].score * 100).toInt()}%)"
+                else "Arahkan kamera ke tanaman padi",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.Black
+            )
+
         } else {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Izin kamera diperlukan") }
+            Text("Izin Kamera Diperlukan")
         }
     }
 }

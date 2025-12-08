@@ -14,147 +14,163 @@ import kotlin.math.min
 data class DetectionResult(
     val box: RectF,
     val score: Float,
-    val label: String
+    val label: String,
+    val labelIndex: Int
 )
 
 class YoloDetector(
     context: Context,
     modelName: String = "best.tflite",
-    private val confThreshold: Float = 0.5f,
+    // Kembalikan threshold ke 0.50f atau 0.40f agar deteksi sampah hilang
+    private val confThreshold: Float = 0.40f,
     private val iouThreshold: Float = 0.45f
 ) {
-    private var interpreter: Interpreter
+    private var interpreter: Interpreter? = null
     private val inputSize = 640
 
-    private val labels = listOf(
-        "Blast",
-        "Hama Putih Palsu",
-        "Hawar Daun Bakteri",
-        "Stem Borer"
-    )
+    @Volatile
+    private var isClosed = false
+
+    private val labels = listOf("Blast", "Hama Putih Palsu", "Hawar Daun Bakteri", "Stem Borer")
 
     init {
-        val model = FileUtil.loadMappedFile(context, modelName)
-        interpreter = Interpreter(model, Interpreter.Options().apply { setNumThreads(4) })
+        try {
+            val model = FileUtil.loadMappedFile(context, modelName)
+            val options = Interpreter.Options().apply { setNumThreads(4) }
+            interpreter = Interpreter(model, options)
+            Log.i("YoloDetector", "Model loaded successfully")
+        } catch (e: Exception) {
+            Log.e("YoloDetector", "Error loading model", e)
+        }
     }
 
     fun detect(bitmap: Bitmap): List<DetectionResult> {
-        val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
-        val input = bitmapToBGRFloat(resized)
+        synchronized(this) {
+            if (isClosed || interpreter == null) return emptyList()
+        }
 
-        val output = Array(1) { Array(8) { FloatArray(8400) } }
+        return try {
+            val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
+            val input = bitmapToByteBuffer(resized)
 
-        interpreter.run(input, output)
+            // Output shape YOLOv8 [1, 8, 8400]
+            val output = Array(1) { Array(8) { FloatArray(8400) } }
 
-        val results = parseOutput(output[0])
+            synchronized(this) {
+                if (isClosed || interpreter == null) return emptyList()
+                interpreter?.run(input, output)
+            }
 
-        Log.e("YOLO-DETECT", "TOTAL: ${results.size}")
-
-        return applyNMS(results)
+            val results = parseOutputYoloV8(output[0])
+            return applyNMS(results)
+        } catch (e: Exception) {
+            Log.e("YoloDetector", "Error detect", e)
+            emptyList()
+        }
     }
 
-    private fun bitmapToBGRFloat(bitmap: Bitmap): ByteBuffer {
+    private fun bitmapToByteBuffer(bitmap: Bitmap): ByteBuffer {
         val buffer = ByteBuffer.allocateDirect(4 * inputSize * inputSize * 3)
         buffer.order(ByteOrder.nativeOrder())
 
-        val pixels = IntArray(inputSize * inputSize)
-        bitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+        val intValues = IntArray(inputSize * inputSize)
+        bitmap.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize)
 
-        for (px in pixels) {
-            val r = (px shr 16 and 0xFF)
-            val g = (px shr 8 and 0xFF)
-            val b = (px and 0xFF)
-
-            buffer.putFloat(b / 255f)
-            buffer.putFloat(g / 255f)
-            buffer.putFloat(r / 255f)
+        for (pixelValue in intValues) {
+            // Normalisasi 0-255 -> 0.0-1.0
+            buffer.putFloat(((pixelValue shr 16 and 0xFF) / 255.0f))
+            buffer.putFloat(((pixelValue shr 8 and 0xFF) / 255.0f))
+            buffer.putFloat(((pixelValue and 0xFF) / 255.0f))
         }
         return buffer
     }
 
-    private fun parseOutput(out: Array<FloatArray>): List<DetectionResult> {
-        val list = ArrayList<DetectionResult>()
+    private fun parseOutputYoloV8(output: Array<FloatArray>): List<DetectionResult> {
+        val detections = ArrayList<DetectionResult>()
+        val numAnchors = 8400
+        val numClasses = 4
 
-        for (i in 0 until 8400) {
-            val obj = out[4][i]
-            if (obj < confThreshold) continue
+        for (i in 0 until numAnchors) {
+            var maxScore = 0f
+            var bestClassIdx = -1
 
-            // ❗ MODEL KAMU HANYA PUNYA 3 CLASS SCORE
-            val clsScores = floatArrayOf(out[5][i], out[6][i], out[7][i])
-            var best = 0
-            var bestScore = 0f
-
-            for (c in clsScores.indices) {
-                val s = clsScores[c] * obj
-                if (s > bestScore) {
-                    bestScore = s
-                    best = c
+            // Cari kelas terbaik
+            for (c in 0 until numClasses) {
+                val score = output[4 + c][i]
+                if (score > maxScore) {
+                    maxScore = score
+                    bestClassIdx = c
                 }
             }
 
-            if (bestScore < confThreshold) continue
+            if (maxScore < confThreshold) continue
 
-            val cx = out[0][i]
-            val cy = out[1][i]
-            val w = out[2][i]
-            val h = out[3][i]
+            // --- PERBAIKAN DI SINI ---
+            // Output model Anda ternyata SUDAH 0.0 - 1.0 (Relatif)
+            // JADI JANGAN DIBAGI DENGAN inputSize LAGI!
 
-            val x1 = (cx - w / 2).coerceIn(0f, inputSize.toFloat())
-            val y1 = (cy - h / 2).coerceIn(0f, inputSize.toFloat())
-            val x2 = (cx + w / 2).coerceIn(0f, inputSize.toFloat())
-            val y2 = (cy + h / 2).coerceIn(0f, inputSize.toFloat())
+            val cx = output[0][i] // Contoh: 0.5 (Tengah)
+            val cy = output[1][i]
+            val w = output[2][i]
+            val h = output[3][i]
 
-            val box = RectF(
-                x1 / inputSize,
-                y1 / inputSize,
-                x2 / inputSize,
-                y2 / inputSize
-            )
+            val left = (cx - w / 2).coerceIn(0f, 1f)
+            val top = (cy - h / 2).coerceIn(0f, 1f)
+            val right = (cx + w / 2).coerceIn(0f, 1f)
+            val bottom = (cy + h / 2).coerceIn(0f, 1f)
 
-            Log.e("YOLO-BOX", "($bestScore) → ${labels[best]}  BOX=$box")
-
-            list.add(
+            detections.add(
                 DetectionResult(
-                    box = box,
-                    score = bestScore,
-                    label = labels[best]
+                    box = RectF(left, top, right, bottom),
+                    score = maxScore,
+                    label = labels.getOrElse(bestClassIdx) { "Unknown" },
+                    labelIndex = bestClassIdx
                 )
             )
         }
-
-        return list
+        return detections
     }
 
-    private fun applyNMS(dets: List<DetectionResult>): List<DetectionResult> {
-        if (dets.isEmpty()) return emptyList()
+    private fun applyNMS(list: List<DetectionResult>): List<DetectionResult> {
+        if (list.isEmpty()) return emptyList()
 
-        val sorted = dets.sortedByDescending { it.score }.toMutableList()
-        val final = mutableListOf<DetectionResult>()
+        val sorted = list.sortedByDescending { it.score }.toMutableList()
+        val nmsList = ArrayList<DetectionResult>()
 
         while (sorted.isNotEmpty()) {
             val best = sorted.removeAt(0)
-            final.add(best)
+            nmsList.add(best)
 
             val iterator = sorted.iterator()
             while (iterator.hasNext()) {
                 val other = iterator.next()
-                if (iou(best.box, other.box) > iouThreshold) iterator.remove()
+                if (calculateIoU(best.box, other.box) > iouThreshold) {
+                    iterator.remove()
+                }
             }
         }
-        return final
+        return nmsList
     }
 
-    private fun iou(a: RectF, b: RectF): Float {
-        val xA = max(a.left, b.left)
-        val yA = max(a.top, b.top)
-        val xB = min(a.right, b.right)
-        val yB = min(a.bottom, b.bottom)
-
-        val inter = max(0f, xB - xA) * max(0f, yB - yA)
-        val union = a.width() * a.height() + b.width() * b.height() - inter
-
-        return if (union <= 0) 0f else inter / union
+    private fun calculateIoU(a: RectF, b: RectF): Float {
+        val areaA = (a.right - a.left) * (a.bottom - a.top)
+        val areaB = (b.right - b.left) * (b.bottom - b.top)
+        val intersectionLeft = maxOf(a.left, b.left)
+        val intersectionTop = maxOf(a.top, b.top)
+        val intersectionRight = minOf(a.right, b.right)
+        val intersectionBottom = minOf(a.bottom, b.bottom)
+        val intersectionArea = maxOf(0f, intersectionRight - intersectionLeft) * maxOf(0f, intersectionBottom - intersectionTop)
+        val unionArea = areaA + areaB - intersectionArea
+        return if (unionArea <= 0) 0f else intersectionArea / unionArea
     }
 
-    fun close() = interpreter.close()
+    fun close() {
+        synchronized(this) {
+            if (!isClosed) {
+                isClosed = true
+                interpreter?.close()
+                interpreter = null
+            }
+        }
+    }
 }
