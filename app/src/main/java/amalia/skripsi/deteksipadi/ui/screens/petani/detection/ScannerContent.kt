@@ -116,14 +116,13 @@ fun ScannerContent(
 
     Column(
         modifier = modifier
-            .fillMaxSize()
-            .background(Color.White),
+            .fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         if (hasCameraPermission.value) {
 
-            // UI KOTAK 1:1
+            // UI KOTAK 3:4
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -138,9 +137,6 @@ fun ScannerContent(
                     AndroidView(
                         factory = {
                             previewView.apply {
-                                // FIT_CENTER: Menampilkan SELURUH gambar di dalam kotak
-                                // Tidak ada crop. Gambar mungkin ada bar hitam di samping/atas,
-                                // tapi bounding box akan kita sesuaikan.
                                 scaleType = PreviewView.ScaleType.FIT_CENTER
                             }
                         },
@@ -178,13 +174,6 @@ fun ScannerContent(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(66.dp))
-            Text(
-                if (detectionResults.isNotEmpty()) "Terdeteksi ada OPT. Kirim Laporan!" else "Arahkan kamera ke tanaman padi",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.Black
-            )
 
         } else {
             Text("Izin Kamera Diperlukan")

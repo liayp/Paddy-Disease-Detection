@@ -1,7 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
 import amalia.skripsi.deteksipadi.R
-import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeViewModel
+import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
 import amalia.skripsi.deteksipadi.util.ImageUtils
 import android.content.Context
 import android.graphics.Bitmap
@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
@@ -47,15 +48,12 @@ fun ScannerFab(
     FloatingActionButton(
         onClick = {
             if (isImageReady) {
-                // MODE UPLOAD
                 onUploadTriggered()
             } else {
-                // MODE KAMERA (Ambil Foto)
                 imageCapture.takePicture(
                     cameraExecutor,
                     object : ImageCapture.OnImageCapturedCallback() {
                         override fun onCaptureSuccess(imageProxy: ImageProxy) {
-                            // Gunakan ImageUtils
                             val rawBitmap = ImageUtils.imageProxyToBitmap(imageProxy)
                             if (rawBitmap != null) {
                                 val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
@@ -74,7 +72,6 @@ fun ScannerFab(
                 )
             }
         },
-        // Warna berubah: Hijau (Kamera) -> Biru (Ready)
         containerColor = if (isImageReady) Color(0xFF21F3DB) else Color(0xFF4CB64E),
         shape = CircleShape,
         modifier = Modifier
@@ -84,7 +81,7 @@ fun ScannerFab(
         if (isUploading) {
             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
         } else if (isImageReady) {
-            Icon(Icons.Default.Send, "Kirim Laporan", tint = Color.White)
+            Icon(Icons.AutoMirrored.Filled.Send, "Kirim Laporan", tint = Color.White)
         } else {
             Icon(
                 painterResource(id = R.drawable.baseline_camera_alt_24),

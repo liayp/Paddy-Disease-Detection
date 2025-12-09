@@ -3,8 +3,8 @@ package amalia.skripsi.deteksipadi.ui.navigation
 import amalia.skripsi.deteksipadi.ui.screens.petani.detection.DetectionScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.history.HistoryScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.history.HistoryViewModel
-import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeScreen
-import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeViewModel
+import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeScreen
+import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.PetaScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.PetaViewModel
 import amalia.skripsi.deteksipadi.ui.screens.general.profile.ProfileScreen

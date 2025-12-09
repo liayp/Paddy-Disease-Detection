@@ -1,32 +1,43 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
     import amalia.skripsi.deteksipadi.R
+    import androidx.compose.foundation.BorderStroke
     import androidx.compose.foundation.background
     import androidx.compose.foundation.clickable
     import androidx.compose.foundation.layout.Arrangement
     import androidx.compose.foundation.layout.Box
     import androidx.compose.foundation.layout.Column
     import androidx.compose.foundation.layout.Row
+    import androidx.compose.foundation.layout.Spacer
     import androidx.compose.foundation.layout.fillMaxWidth
+    import androidx.compose.foundation.layout.height
+    import androidx.compose.foundation.layout.navigationBarsPadding
     import androidx.compose.foundation.layout.padding
     import androidx.compose.foundation.layout.size
+    import androidx.compose.foundation.layout.width
+    import androidx.compose.foundation.shape.RoundedCornerShape
     import androidx.compose.material.icons.Icons
     import androidx.compose.material.icons.filled.ArrowBack
     import androidx.compose.material3.BottomAppBar
+    import androidx.compose.material3.Button
+    import androidx.compose.material3.ButtonDefaults
     import androidx.compose.material3.ExperimentalMaterial3Api
     import androidx.compose.material3.Icon
     import androidx.compose.material3.IconButton
+    import androidx.compose.material3.MaterialTheme
     import androidx.compose.material3.Text
     import androidx.compose.material3.TopAppBar
     import androidx.compose.material3.TopAppBarDefaults
     import androidx.compose.runtime.Composable
     import androidx.compose.ui.Alignment
     import androidx.compose.ui.Modifier
+    import androidx.compose.ui.draw.clip
     import androidx.compose.ui.graphics.Brush
     import androidx.compose.ui.graphics.Color
     import androidx.compose.ui.res.painterResource
     import androidx.compose.ui.res.stringResource
     import androidx.compose.ui.text.font.FontWeight
+    import androidx.compose.ui.text.style.TextAlign
     import androidx.compose.ui.unit.dp
     import androidx.compose.ui.unit.sp
     import androidx.navigation.NavController
@@ -95,28 +106,70 @@ package amalia.skripsi.deteksipadi.ui.screens.petani.detection
         )
     }
 
+
     @Composable
     fun ScannerBottomBar(
         onGalleryClick: () -> Unit
     ) {
-        BottomAppBar(tonalElevation = 4.dp, containerColor = Color.White) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                IconTextColumn(
-                    iconId = R.drawable.baseline_camera_alt_24,
-                    text = stringResource(R.string.title_camera),
-                    tint = Color(0xFF719D3D),
-                    onClick = { /* Sudah di mode kamera */ }
-                )
-                IconTextColumn(
-                    iconId = R.drawable.outline_photo_library_24,
-                    text = stringResource(R.string.title_gallery),
-                    tint = Color(0xFFB0BEC5),
-                    onClick = onGalleryClick
-                )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding() // ini yang bikin UI naik dari nav bar
+        ){
+            BottomAppBar(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                tonalElevation = 4.dp,
+                containerColor = Color(0xFFD4E6D7)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Button(
+                        onClick = { /* Sudah di mode kamera */ },
+                        modifier = Modifier
+                            .padding(vertical = 10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF719D3D)),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.baseline_camera_alt_24),
+                            contentDescription = null,
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.title_camera),
+                            color = Color.White
+                        )
+                    }
+
+                    Button(
+                        onClick = onGalleryClick,
+                        modifier = Modifier
+                            .padding(vertical = 10.dp),
+                        border = BorderStroke(2.dp, Color(0xFF719D3D)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = Color(0xFF719D3D)
+                        ),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.outline_photo_library_24),
+                            contentDescription = null,
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.title_gallery),
+                            color = Color.White
+                        )
+                    }
+                }
             }
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 

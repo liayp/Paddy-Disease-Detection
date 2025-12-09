@@ -3,7 +3,7 @@ package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 import amalia.skripsi.deteksipadi.data.submitReportToSupabase
 import amalia.skripsi.deteksipadi.ml.DetectionResult
 import amalia.skripsi.deteksipadi.ml.YoloDetector
-import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeViewModel
+import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
 import amalia.skripsi.deteksipadi.util.ImageUtils
 import android.Manifest
 import android.annotation.SuppressLint
