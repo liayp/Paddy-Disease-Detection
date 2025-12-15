@@ -12,34 +12,56 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-private val GreenPalette = Color(0xFF719D3D)  // Green (primary)
-private val LightGreen = Color(0xFF8BC34A)    // Soft green (secondary)
-private val DarkGreen = Color(0xFF388E3C)     // Stronger green (tertiary)
-
-private val DarkColorScheme = darkColorScheme(
-    primary = GreenPalette,                  // Main color (primary)
-    secondary = LightGreen,                   // Softer green (secondary)
-    tertiary = DarkGreen,                     // Darker green (tertiary)
-    background = Color(0xFF121212),           // Dark background
-    surface = Color(0xFF1C1B1F),              // Dark surface
-    onPrimary = Color.White,                  // Text color for primary
-    onSecondary = Color.White,                // Text color for secondary
-    onTertiary = Color.White,                 // Text color for tertiary
-    onBackground = Color.White,               // Text color for background
-    onSurface = Color.White                   // Text color for surface
-)
+private val Primary = Color(0xFF719D3C)
+private val Background = Color(0xFFF4EFE3)
+private val Surface = Color(0xFFD4E6D8)
 
 private val LightColorScheme = lightColorScheme(
-    primary = GreenPalette,                   // Main color (primary)
-    secondary = LightGreen,                    // Softer green (secondary)
-    tertiary = DarkGreen,                      // Darker green (tertiary)
-    background = Color(0xFFF4EFE3),           // Light background
-    surface = Color(0xFFFFFFFF),              // White surface
-    onPrimary = Color.Black,                  // Text color for primary
-    onSecondary = Color.Black,                // Text color for secondary
-    onTertiary = Color.Black,                 // Text color for tertiary
-    onBackground = Color.Black,               // Text color for background
-    onSurface = Color.Black                   // Text color for surface
+    primary = Primary,
+    onPrimary = Color.White,
+
+    secondary = Surface,
+    onSecondary = Color.Black,
+
+    tertiary = Primary,
+    onTertiary = Color.White,
+
+    background = Background,
+    onBackground = Color.Black,
+
+    surface = Surface,
+    onSurface = Color.Black,
+
+    primaryContainer = Primary,
+    onPrimaryContainer = Color.White,
+
+    surfaceVariant = Surface,
+    onSurfaceVariant = Color.Black
+)
+
+
+private val DarkColorScheme = darkColorScheme(
+    primary = Primary,
+    onPrimary = Color.White,
+
+    secondary = Surface,
+    onSecondary = Color.Black,
+
+    tertiary = Primary,
+    onTertiary = Color.White,
+
+    background = Background,
+    onBackground = Color.Black,
+
+    surface = Surface,
+    onSurface = Color.Black,
+
+    primaryContainer = Primary,
+    onPrimaryContainer = Color.White,
+
+    surfaceVariant = Surface,
+    onSurfaceVariant = Color.Black
+
 )
 
 @Composable
@@ -54,8 +76,8 @@ fun DeteksiPadiTheme(
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
-        darkTheme -> DarkColorScheme  // Dark mode color scheme
-        else -> LightColorScheme     // Light mode color scheme
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
     }
 
     MaterialTheme(

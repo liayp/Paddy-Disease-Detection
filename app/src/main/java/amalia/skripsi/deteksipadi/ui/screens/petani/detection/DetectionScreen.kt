@@ -132,9 +132,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
 
     SetupCameraPermission(context, hasCameraPermission)
 
-    // --- UI STRUCTURE ---
-    // Karena MainScreen memberikan modifier kosong (tanpa padding) untuk route ini,
-    // Scaffold di bawah ini akan mengambil alih seluruh layar (Full Screen).
     Scaffold(
         topBar = { ScannerTopBar(navController, cameraExecutor) },
         bottomBar = {
@@ -160,7 +157,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
         },
         floatingActionButtonPosition = FabPosition.Center
     ) { innerPadding ->
-        // ScannerContent hanya mengikuti padding dari Scaffold Scanner ini sendiri.
         ScannerContent(
             hasCameraPermission = hasCameraPermission,
             showCapturedImage = showCapturedImage,
