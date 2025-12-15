@@ -16,7 +16,6 @@ val supabase = createSupabaseClient(
     install(Storage)
 }
 
-// 2. Data Model untuk Laporan (Sesuai Tabel Database yang kita buat)
 @Serializable
 data class ReportDto(
     val image_url: String,

@@ -3,4 +3,5 @@
     <string name="detection_title">Deteksi OPT Pada Padi</string>
     <string name="title_camera">Ambil Foto</string>
     <string name="title_gallery">Pilih dari Galeri</string>
+    <string name="title_activity_maps_screen">MapsScreen</string>
 </resources>

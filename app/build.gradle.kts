@@ -6,6 +6,7 @@ plugins {
     id("kotlin-parcelize")
     id("com.google.dagger.hilt.android")
     kotlin("plugin.serialization") version "2.2.21"
+    alias(libs.plugins.google.android.libraries.mapsplatform.secrets.gradle.plugin)
 }
 
 android {
@@ -41,6 +42,7 @@ android {
     buildFeatures {
         compose = true
         mlModelBinding = true
+        viewBinding = true
     }
 
     androidResources {
@@ -65,6 +67,9 @@ dependencies {
     implementation(libs.tensorflow.lite.support)
     implementation(libs.tensorflow.lite.metadata)
     implementation(libs.androidx.exifinterface)
+    implementation(libs.play.services.maps)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.constraintlayout)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -89,10 +94,17 @@ dependencies {
     implementation(libs.gotrue.kt) // Auth (Opsional tapi perlu init)
     implementation(libs.ktor.client.android)
 
+    implementation(platform(libs.bom))
+    implementation(libs.supabase.postgrest.kt)
+    implementation(libs.auth.kt)
+    implementation(libs.realtime.kt)
+
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
     //location
     implementation(libs.play.services.location)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.androidx.compose.material.icons.extended)
+
 }

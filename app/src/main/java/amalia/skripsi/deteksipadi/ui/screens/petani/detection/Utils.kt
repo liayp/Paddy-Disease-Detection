@@ -6,9 +6,14 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import androidx.camera.core.ImageProxy
 import androidx.exifinterface.media.ExifInterface
 import java.nio.ByteBuffer
+import androidx.core.graphics.createBitmap
+import java.io.File
+import java.io.FileOutputStream
 
 object ImageUtils {
 
@@ -61,7 +66,7 @@ object ImageUtils {
             val rowStride = planeProxy.rowStride
             val rowPadding = rowStride - pixelStride * width
 
-            val bitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888)
+            val bitmap = createBitmap(width + rowPadding / pixelStride, height)
             bitmap.copyPixelsFromBuffer(buffer)
 
             return if (rowPadding == 0) {
@@ -71,5 +76,47 @@ object ImageUtils {
             }
         }
         return null
+    }
+
+    fun getGeoLocation(context: Context, uri: Uri): Pair<Double, Double>? {
+        return try {
+            // Coba dapatkan URI asli (Un-redacted)
+            val photoUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    MediaStore.setRequireOriginal(uri)
+                } catch (e: Exception) {
+                    uri // Fallback jika bukan dari MediaStore
+                }
+            } else {
+                uri
+            }
+
+            // SALIN KE TEMP FILE (Kunci agar terbaca di semua HP)
+            // Stream EXIF butuh akses file penuh, kadang InputStream saja gagal
+            val inputStream = context.contentResolver.openInputStream(photoUri) ?: return null
+            val tempFile = File(context.cacheDir, "temp_gps_check.jpg")
+            val outputStream = FileOutputStream(tempFile)
+
+            inputStream.copyTo(outputStream)
+            inputStream.close()
+            outputStream.close()
+
+            //Baca EXIF dari File Temp
+            val exif = ExifInterface(tempFile.absolutePath)
+            val latLong = FloatArray(2)
+
+            val hasLatLong = exif.getLatLong(latLong)
+
+            // Hapus file temp biar bersih
+            tempFile.delete()
+
+            if (hasLatLong) {
+                return Pair(latLong[0].toDouble(), latLong[1].toDouble())
+            }
+            null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 }

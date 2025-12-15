@@ -25,7 +25,7 @@ fun DetectionOverlay(
         val screenH = size.height
 
         // --- LOGIKA "FIT_CENTER" (Muat Semua) ---
-        // Kita cari skala TERKECIL agar gambar muat sepenuhnya
+        // Cari skala TERKECIL agar gambar muat sepenuhnya
         val scaleX = screenW / sourceWidth.toFloat()
         val scaleY = screenH / sourceHeight.toFloat()
 

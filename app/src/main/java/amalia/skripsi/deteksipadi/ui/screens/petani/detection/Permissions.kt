@@ -3,20 +3,52 @@ package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
 
 @Composable
-fun SetupCameraPermission(context: Context, hasCameraPermission: MutableState<Boolean>) {
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        hasCameraPermission.value = granted
+fun EnsurePermissions(
+    context: Context,
+    onPermissionsGranted: (Boolean) -> Unit
+) {
+    // List izin dasar
+    val permissions = mutableListOf(
+        Manifest.permission.CAMERA,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    )
+
+    // FIX: Tambahkan izin Media Location khusus Android 10+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        permissions.add(Manifest.permission.ACCESS_MEDIA_LOCATION)
     }
-    LaunchedEffect(true) {
-        hasCameraPermission.value = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        if (!hasCameraPermission.value) launcher.launch(Manifest.permission.CAMERA)
+
+    // Tambahkan izin Read Storage (Tergantung versi Android)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+    } else {
+        permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissionsMap ->
+        // Cek apakah SEMUA izin disetujui
+        val allGranted = permissionsMap.values.all { it }
+        onPermissionsGranted(allGranted)
+    }
+
+    LaunchedEffect(Unit) {
+        val allAlreadyGranted = permissions.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+
+        if (!allAlreadyGranted) {
+            launcher.launch(permissions.toTypedArray())
+        } else {
+            onPermissionsGranted(true)
+        }
     }
 }

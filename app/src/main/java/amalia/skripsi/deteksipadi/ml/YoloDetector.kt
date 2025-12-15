@@ -10,6 +10,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.max
 import kotlin.math.min
+import androidx.core.graphics.scale
 
 data class DetectionResult(
     val box: RectF,
@@ -50,7 +51,7 @@ class YoloDetector(
         }
 
         return try {
-            val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
+            val resized = bitmap.scale(inputSize, inputSize)
             val input = bitmapToByteBuffer(resized)
 
             // Output shape YOLOv8 [1, 8, 8400]
