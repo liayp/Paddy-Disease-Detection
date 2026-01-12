@@ -1,4 +1,4 @@
-package amalia.skripsi.deteksipadi.util
+package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -80,7 +80,7 @@ object ImageUtils {
 
     fun getGeoLocation(context: Context, uri: Uri): Pair<Double, Double>? {
         return try {
-            // Coba dapatkan URI asli (Un-redacted)
+            // 1. Coba dapatkan URI asli (Un-redacted)
             val photoUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     MediaStore.setRequireOriginal(uri)
@@ -91,7 +91,7 @@ object ImageUtils {
                 uri
             }
 
-            // SALIN KE TEMP FILE (Kunci agar terbaca di semua HP)
+            // 2. SALIN KE TEMP FILE (Kunci agar terbaca di semua HP)
             // Stream EXIF butuh akses file penuh, kadang InputStream saja gagal
             val inputStream = context.contentResolver.openInputStream(photoUri) ?: return null
             val tempFile = File(context.cacheDir, "temp_gps_check.jpg")
@@ -101,7 +101,7 @@ object ImageUtils {
             inputStream.close()
             outputStream.close()
 
-            //Baca EXIF dari File Temp
+            // 3. Baca EXIF dari File Temp
             val exif = ExifInterface(tempFile.absolutePath)
             val latLong = FloatArray(2)
 

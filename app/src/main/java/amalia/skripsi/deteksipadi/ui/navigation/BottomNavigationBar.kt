@@ -1,13 +1,8 @@
 package amalia.skripsi.deteksipadi.ui.navigation
 
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 
@@ -17,9 +12,12 @@ fun BottomNavigationBar(navController: NavController) {
     val currentRoute = navBackStackEntry?.destination?.route
 
     NavigationBar(
-        containerColor = Color(0xFFD4E6D7)
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         BottomNavItem.items.forEach { item ->
+            val isSelected = currentRoute == item.route
+
             NavigationBarItem(
                 icon = {
                     Icon(
@@ -27,13 +25,28 @@ fun BottomNavigationBar(navController: NavController) {
                         contentDescription = item.label
                     )
                 },
-                label = { Text(item.label) },
-                selected = currentRoute == item.route,
+                label = {
+                    Text(
+                        text = item.label,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                },
+                selected = isSelected,
                 onClick = {
                     if (currentRoute != item.route) {
                         navController.navigateSingleTopTo(item.route)
                     }
-                }
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+
+                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurface,
+
+                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
             )
         }
     }

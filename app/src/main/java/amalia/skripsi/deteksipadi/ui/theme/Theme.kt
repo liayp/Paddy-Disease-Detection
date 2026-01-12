@@ -14,7 +14,9 @@ import androidx.compose.ui.platform.LocalContext
 
 private val Primary = Color(0xFF719D3C)
 private val Background = Color(0xFFF4EFE3)
-private val Surface = Color(0xFFD4E6D8)
+private val Surface = Color(0xFFE6EAE1)
+val OnPrimary     = Color.White
+val OnSurface     = Color.Black
 
 private val LightColorScheme = lightColorScheme(
     primary = Primary,
@@ -36,7 +38,10 @@ private val LightColorScheme = lightColorScheme(
     onPrimaryContainer = Color.White,
 
     surfaceVariant = Surface,
-    onSurfaceVariant = Color.Black
+    onSurfaceVariant = Color.Black,
+
+    secondaryContainer = Primary,
+    onSecondaryContainer = OnPrimary,
 )
 
 

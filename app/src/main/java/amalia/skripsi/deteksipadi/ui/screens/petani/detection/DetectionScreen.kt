@@ -4,7 +4,6 @@ import amalia.skripsi.deteksipadi.data.submitReportToSupabase
 import amalia.skripsi.deteksipadi.ml.DetectionResult
 import amalia.skripsi.deteksipadi.ml.YoloDetector
 import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
-import amalia.skripsi.deteksipadi.util.ImageUtils
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -47,13 +46,12 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
     // --- State Management ---
     val scaffoldState = rememberBottomSheetScaffoldState()
 
-    // Buat MutableState agar kompatibel dengan ScannerContent
+    // State Gambar
     val showCapturedImageState = remember { mutableStateOf(false) }
     val capturedBitmapState = remember { mutableStateOf<Bitmap?>(null) }
 
+    // State Hasil Deteksi (LIST LENGKAP)
     var detectionResults by remember { mutableStateOf<List<DetectionResult>>(emptyList()) }
-    var finalLabel by remember { mutableStateOf("") }
-    var finalScore by remember { mutableFloatStateOf(0f) }
     var reportLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var isUploading by remember { mutableStateOf(false) }
 
@@ -73,40 +71,31 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
     var arePermissionsGranted by remember { mutableStateOf(false) }
     EnsurePermissions(context) { granted -> arePermissionsGranted = granted }
 
-    // FUNGSI RESET (Dipanggil saat tombol X ditekan)
+    // FUNGSI RESET
     fun onReset() {
-        // Kosongkan Gambar & Hasil
         capturedBitmapState.value = null
         showCapturedImageState.value = false
         detectionResults = emptyList()
         reportLocation = null
-
-        // Sheet otomatis sembunyi karena peekHeight bergantung pada capturedBitmapState
     }
 
-    // Handle Back Button HP: Reset dulu, baru exit app
+    // Handle Back Button
     BackHandler(enabled = showCapturedImageState.value) {
         onReset()
     }
 
-    // FUNGSI PROSES
+    // FUNGSI PROSES (Menerima Bitmap & Lokasi)
     fun processResult(bmp: Bitmap, location: Pair<Double, Double>?) {
-        // Update State UI
+        // 1. Update UI untuk menampilkan gambar beku
         capturedBitmapState.value = bmp
         showCapturedImageState.value = true
         reportLocation = location
 
+        // 2. Jalankan Deteksi
         detector?.let { d ->
             val results = d.detect(bmp)
+            // Simpan SEMUA hasil (bukan cuma maxByOrNull)
             detectionResults = results
-            val best = results.maxByOrNull { it.score }
-            if (best != null) {
-                finalLabel = best.label
-                finalScore = best.score
-            } else {
-                finalLabel = "Tidak Terdeteksi"
-                finalScore = 0f
-            }
         }
     }
 
@@ -119,9 +108,7 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
             uri?.let {
                 scope.launch(Dispatchers.IO) {
                     val bmp = ImageUtils.loadBitmapFromUri(context, it)
-                    // Panggil fungsi getGeoLocation
                     val exifLoc = ImageUtils.getGeoLocation(context, it)
-
                     if (bmp != null) {
                         withContext(Dispatchers.Main) { processResult(bmp, exifLoc) }
                     }
@@ -137,6 +124,7 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                 processResult(bmp, if (loc != null) Pair(loc.latitude, loc.longitude) else null)
             }.addOnFailureListener { processResult(bmp, null) }
         } else {
+            // Jika gagal dapat lokasi, tetap proses gambar (nanti user diingatkan di Sheet)
             processResult(bmp, null)
         }
     }
@@ -145,16 +133,14 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
     if (arePermissionsGranted) {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
-            // LOGIC KUNCI:
-            // Jika ada foto (capturedBitmapState != null) -> Sheet muncul 130dp.
-            // Jika tidak -> Sheet 0dp (Sembunyi).
-            sheetPeekHeight = if (capturedBitmapState.value != null) 130.dp else 0.dp,
-            sheetContainerColor = Color(0xFFFFF8E1), // Warna Krem
+            // Logic PeekHeight: Munculkan sheet jika gambar sudah dicapture
+            sheetPeekHeight = if (capturedBitmapState.value != null) 250.dp else 0.dp, // Tambah tinggi agar muat list
+            containerColor = MaterialTheme.colorScheme.background,
+            sheetContainerColor = Color(0xFFFFF8E1),
             sheetContent = {
-                // Isi Bottom Sheet
+                // Panggil ResultSheetContent dengan List Penuh
                 ResultSheetContent(
-                    label = finalLabel,
-                    confidence = finalScore,
+                    results = detectionResults, // Kirim List
                     locationStr = reportLocation?.let { "${it.first}, ${it.second}" },
                     isLoading = isUploading,
                     onSend = {
@@ -164,10 +150,10 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                                 val stream = ByteArrayOutputStream()
                                 capturedBitmapState.value!!.compress(Bitmap.CompressFormat.JPEG, 70, stream)
 
+                                // PANGGIL FUNGSI UPLOAD YANG BARU (Kirim List)
                                 val result = submitReportToSupabase(
                                     photoBytes = stream.toByteArray(),
-                                    label = finalLabel,
-                                    conf = finalScore,
+                                    results = detectionResults, // Kirim List Deteksi
                                     lat = reportLocation!!.first,
                                     lon = reportLocation!!.second
                                 )
@@ -175,70 +161,59 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                                 withContext(Dispatchers.Main) {
                                     isUploading = false
                                     result.onSuccess {
-                                        Toast.makeText(context, "Laporan Terkirim!", Toast.LENGTH_LONG).show()
-                                        onReset() // Reset setelah sukses
+                                        Toast.makeText(context, "Laporan Terkirim & Diproses!", Toast.LENGTH_LONG).show()
+                                        onReset()
                                     }.onFailure { e ->
                                         Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_LONG).show()
                                     }
                                 }
                             }
+                        } else {
+                            Toast.makeText(context, "Lokasi wajib aktif untuk melapor!", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
             }
         ) { innerPadding ->
-            // --- KONTEN BELAKANG (FOTO / KAMERA) ---
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-            ) {
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 Column {
-                    // FIX 1: ScannerTopBar SELALU MUNCUL (Di luar kondisi if)
                     ScannerTopBar(navController, cameraExecutor)
 
                     Box(modifier = Modifier.weight(1f)) {
-                        // ScannerContent akan menampilkan Kamera Live ATAU Foto Beku + Tombol X
-                        // sesuai dengan state yang kita kirim
+                        // ScannerContent Logic
                         ScannerContent(
                             hasCameraPermission = remember { mutableStateOf(true) },
-                            showCapturedImage = showCapturedImageState, // Sync State
-                            capturedBitmap = capturedBitmapState,       // Sync State
-                            selectedGalleryBitmap = remember { mutableStateOf(null) }, // Tidak perlu, pakai capturedBitmapState saja
-                            isGalleryImageShown = remember { mutableStateOf(false) }, // Tidak perlu
+                            showCapturedImage = showCapturedImageState,
+                            capturedBitmap = capturedBitmapState,
+                            // Parameter dummy karena tidak dipakai logika ini
+                            selectedGalleryBitmap = remember { mutableStateOf(null) },
+                            isGalleryImageShown = remember { mutableStateOf(false) },
+
                             cameraProviderFuture = cameraProviderFuture,
                             lifecycleOwner = lifecycleOwner,
                             imageCapture = imageCapture,
                             context = context,
                             detector = detector,
-                            detectionResults = detectionResults,
-                            onRealtimeDetection = { detectionResults = it },
-                            onClearImage = {
-                                // FIX 2: Saat tombol X ditekan di ScannerContent, panggil reset utama
-                                onReset()
+                            detectionResults = detectionResults, // Tampilkan box di layar
+                            onRealtimeDetection = {
+                                // Hanya update realtime jika tidak sedang hold gambar
+                                if (!showCapturedImageState.value) detectionResults = it
                             },
+                            onClearImage = { onReset() },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
 
-                    // Bottom Bar Galeri (Hanya muncul saat Mode Scan)
                     if (!showCapturedImageState.value) {
                         ScannerBottomBar(onGalleryClick = {
-                            val intent = Intent(
-                                Intent.ACTION_PICK,
-                                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-                            )
+                            val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
                             galleryLauncher.launch(intent)
                         })
                     }
                 }
 
-                // FAB (Hanya muncul saat Mode Scan)
                 if (!showCapturedImageState.value) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 100.dp)
-                    ) {
+                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp)) {
                         ScannerFab(
                             imageCapture = imageCapture,
                             cameraExecutor = cameraExecutor,
@@ -249,7 +224,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
             }
         }
     } else {
-        // Loading state saat minta izin
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }

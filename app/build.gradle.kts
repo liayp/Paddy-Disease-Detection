@@ -107,4 +107,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.compose.material.icons.extended)
 
+    //maps
+    implementation(libs.maps.compose)
+    implementation(libs.play.services.location.v2101)
+
 }

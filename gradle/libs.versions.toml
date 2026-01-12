@@ -13,6 +13,7 @@ ktorClientAndroid = "3.3.3"
 lifecycleRuntimeKtx = "2.9.4"
 activityCompose = "1.11.0"
 composeBom = "2025.12.00"
+mapsCompose = "7.0.0"
 navigationCompose = "2.9.6"
 hiltAndroid = "2.57.2"
 hiltNavigationCompose = "1.3.0"
@@ -20,6 +21,7 @@ cameraLifecycle = "1.5.1"
 cameraView = "1.5.1"
 cameraxVersion = "1.4.0"
 playServicesLocation = "21.3.0"
+playServicesLocationVersion = "21.0.1"
 postgrestKt = "3.2.6"
 storageKt = "3.2.6"
 tensorflowLite = "2.17.0"
@@ -60,7 +62,9 @@ androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.r
 kotlinx-coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "kotlinxCoroutinesPlayServices" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktorClientAndroid" }
+maps-compose = { module = "com.google.maps.android:maps-compose", version.ref = "mapsCompose" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
+play-services-location-v2101 = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocationVersion" }
 postgrest-kt = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "postgrestKt" }
 realtime-kt = { module = "io.github.jan-tennert.supabase:realtime-kt" }
 storage-kt = { module = "io.github.jan-tennert.supabase:storage-kt", version.ref = "storageKt" }

@@ -1,7 +1,6 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
 import amalia.skripsi.deteksipadi.R
-import amalia.skripsi.deteksipadi.util.ImageUtils
 import android.graphics.Bitmap
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException

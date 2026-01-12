@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,16 +58,12 @@ fun MainScreen() {
 
                     BottomNavigationBar(navController = navController)
 
-                    val gradientBrush = Brush.linearGradient(
-                        colors = listOf(Color(0xFF4CAF50), Color(0xFF8BC34A))
-                    )
-
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .offset(y = (-28).dp)
                             .size(56.dp)
-                            .background(brush = gradientBrush, shape = CircleShape)
+                            .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
                             .clickable { navController.navigateSingleTopTo(SCANNER_ROUTE) },
                         contentAlignment = Alignment.Center
                     ) {

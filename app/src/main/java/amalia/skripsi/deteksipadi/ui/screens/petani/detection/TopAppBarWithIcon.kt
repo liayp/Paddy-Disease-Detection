@@ -118,7 +118,7 @@ fun ScannerBottomBar(
                 .padding(horizontal = 16.dp)
                 .clip(RoundedCornerShape(8.dp)),
             tonalElevation = 4.dp,
-            containerColor = Color(0xFFD4E6D7)) {
+            containerColor = MaterialTheme.colorScheme.surface) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
