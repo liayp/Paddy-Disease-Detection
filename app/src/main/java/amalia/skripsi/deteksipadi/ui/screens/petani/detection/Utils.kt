@@ -1,5 +1,6 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
+import amalia.skripsi.deteksipadi.ml.DetectionResult
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -76,6 +77,68 @@ object ImageUtils {
             }
         }
         return null
+    }
+
+
+    fun drawDetectionOnBitmap(originalBitmap: Bitmap, results: List<DetectionResult>): Bitmap {
+        // 1. Copy bitmap agar bisa diedit
+        val mutableBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(mutableBitmap)
+
+        // AMBIL UKURAN GAMBAR ASLI
+        val imgWidth = mutableBitmap.width.toFloat()
+        val imgHeight = mutableBitmap.height.toFloat()
+
+        val boxPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.RED
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 8f
+        }
+
+        val textBgPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.RED
+            style = android.graphics.Paint.Style.FILL
+        }
+
+        val textPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 40f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        for (result in results) {
+            val box = result.box // Ini masih 0.0 - 1.0
+
+            // --- PERBAIKAN UTAMA: KONVERSI KE PIKSEL ---
+            val left = box.left * imgWidth
+            val top = box.top * imgHeight
+            val right = box.right * imgWidth
+            val bottom = box.bottom * imgHeight
+
+            val pixelRect = android.graphics.RectF(left, top, right, bottom)
+
+            // Gambar Kotak menggunakan koordinat PIKSEL
+            canvas.drawRect(pixelRect, boxPaint)
+
+            // Label
+            val labelText = "${result.label} ${(result.score * 100).toInt()}%"
+            val textWidth = textPaint.measureText(labelText)
+            val textHeight = textPaint.textSize
+
+            // Gambar Background Teks
+            canvas.drawRect(
+                left,
+                top - textHeight - 10f,
+                left + textWidth + 20f,
+                top,
+                textBgPaint
+            )
+
+            // Gambar Teks
+            canvas.drawText(labelText, left + 10f, top - 10f, textPaint)
+        }
+
+        return mutableBitmap
     }
 
     fun getGeoLocation(context: Context, uri: Uri): Pair<Double, Double>? {
