@@ -91,7 +91,6 @@ dependencies {
     // Supabase (Database & Storage)
     implementation(libs.postgrest.kt)
     implementation(libs.storage.kt)
-    implementation(libs.gotrue.kt) // Auth (Opsional tapi perlu init)
     implementation(libs.ktor.client.android)
 
     implementation(platform(libs.bom))
@@ -111,4 +110,14 @@ dependencies {
     implementation(libs.maps.compose)
     implementation(libs.play.services.location.v2101)
 
+    // Supabase Auth (GoTrue)
+    implementation(libs.supabase.gotrue.kt)
+
+    // Google Sign In (Credentials Manager - Cara Modern)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
+
+    //coil
+    implementation(libs.coil.compose)
 }

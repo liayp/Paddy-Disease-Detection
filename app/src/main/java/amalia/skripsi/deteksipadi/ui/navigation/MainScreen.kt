@@ -39,7 +39,9 @@ import androidx.navigation.compose.rememberNavController
 const val SCANNER_ROUTE = "scanner"
 
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    onLogout: () -> Unit
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -109,7 +111,11 @@ fun MainScreen() {
             }
             composable(BottomNavItem.Profile.route) {
                 val profileViewModel: ProfileViewModel = hiltViewModel()
-                ProfileScreen(profileViewModel = profileViewModel, navController = navController)
+                ProfileScreen(
+                    profileViewModel = profileViewModel,
+                    navController = navController,
+                    onLogout = onLogout // <--- Lempar ke dalam
+                )
             }
         }
     }

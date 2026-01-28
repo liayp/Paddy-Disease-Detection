@@ -13,15 +13,3 @@ data class Hotspot(
     val ai_label: String,
     val image_url: String
 )
-
-// Fungsi untuk mengambil data titik hama
-suspend fun fetchActiveHotspots(): List<HotspotDto> {
-    return try {
-        // Memanggil fungsi SQL 'get_active_hotspots'
-        val result = supabase.postgrest.rpc("get_active_hotspots")
-        result.decodeList<HotspotDto>()
-    } catch (e: Exception) {
-        e.printStackTrace()
-        emptyList()
-    }
-}

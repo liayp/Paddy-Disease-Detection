@@ -1,5 +1,6 @@
 package amalia.skripsi.deteksipadi
 
+import amalia.skripsi.deteksipadi.ui.navigation.AppNavigation
 import amalia.skripsi.deteksipadi.ui.navigation.MainScreen
 import amalia.skripsi.deteksipadi.ui.theme.DeteksiPadiTheme
 import android.Manifest
@@ -106,7 +107,7 @@ class MainActivity : ComponentActivity() {
                         .navigationBarsPadding(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainScreen()
+                    AppNavigation()
                 }
             }
         }

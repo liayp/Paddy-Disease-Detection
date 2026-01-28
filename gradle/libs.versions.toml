@@ -1,7 +1,11 @@
 [versions]
 agp = "8.13.1"
 bom = "3.2.6"
+coilCompose = "2.7.0"
+credentials = "1.5.0"
+googleid = "1.2.0"
 gotrueKt = "2.6.1"
+gotrueKtVersion = "3.1.0"
 kotlin = "2.2.21"
 coreKtx = "1.15.0"
 junit = "4.13.2"
@@ -35,9 +39,13 @@ constraintlayout = "2.2.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
+androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 auth-kt = { module = "io.github.jan-tennert.supabase:auth-kt" }
 bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "bom" }
-gotrue-kt = { module = "io.github.jan-tennert.supabase:gotrue-kt", version.ref = "gotrueKt" }
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coilCompose" }
+googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
+supabase-gotrue-kt = { module = "io.github.jan-tennert.supabase:gotrue-kt", version.ref = "gotrueKt" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }

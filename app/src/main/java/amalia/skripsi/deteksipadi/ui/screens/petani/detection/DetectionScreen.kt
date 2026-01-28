@@ -10,6 +10,8 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.location.Geocoder
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -38,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.util.Locale
 import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -170,6 +173,23 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                                     lat = reportLocation!!.first,
                                     lon = reportLocation!!.second
                                 )
+
+                                val geocoder = Geocoder(context, Locale.getDefault())
+                                var kecamatanName = "Unknown"
+
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    geocoder.getFromLocation(reportLocation!!.first, reportLocation!!.second, 1) { addresses ->
+                                        if (addresses.isNotEmpty()) {
+                                            kecamatanName = addresses[0].locality // locality biasanya Kecamatan
+                                        }
+                                    }
+                                } else {
+                                    // Versi lama (Blocking) - jalankan di IO thread
+                                    val addresses = geocoder.getFromLocation(reportLocation!!.first, reportLocation!!.second, 1)
+                                    if (!addresses.isNullOrEmpty()) {
+                                        kecamatanName = addresses[0].locality
+                                    }
+                                }
 
                                 withContext(Dispatchers.Main) {
                                     isUploading = false

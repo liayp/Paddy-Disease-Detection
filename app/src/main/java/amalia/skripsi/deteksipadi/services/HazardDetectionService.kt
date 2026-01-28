@@ -2,6 +2,7 @@ package amalia.skripsi.deteksipadi.services
 
 import amalia.skripsi.deteksipadi.R
 import amalia.skripsi.deteksipadi.data.HotspotDto
+import amalia.skripsi.deteksipadi.data.UserProfile
 import amalia.skripsi.deteksipadi.data.fetchActiveHotspots
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils
 import android.app.*
@@ -28,6 +29,8 @@ class HazardDetectionService : Service() {
     private var isDangerNotified = false
     private var isWarningNotified = false
 
+    var userProfile: UserProfile? = null
+
     companion object {
         const val CHANNEL_ID_SERVICE = "channel_service_popt"
         const val CHANNEL_ID_ALERT = "channel_alert_popt"
@@ -43,6 +46,8 @@ class HazardDetectionService : Service() {
         // 1. Ambil data saat service mulai
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                val authRepo = amalia.skripsi.deteksipadi.data.AuthRepository(this@HazardDetectionService)
+                userProfile = authRepo.getUserProfile()
                 hotspots = fetchActiveHotspots()
             } catch (e: Exception) {
                 Log.e("HazardService", "Gagal ambil data: ${e.message}")
@@ -87,8 +92,27 @@ class HazardDetectionService : Service() {
         }
     }
 
-    private fun checkGeofence(userLat: Double, userLon: Double) {
+    private fun     checkGeofence(userLat: Double, userLon: Double) {
         if (hotspots.isEmpty()) return
+
+        // JIKA POPT: Cek Laporan Baru di Wilayahnya
+        if (userProfile?.role == "popt") {
+            val myKecamatan = userProfile?.wkpp_kecamatan ?: emptyList()
+
+            // Cari titik hama yang ada di kecamatan binaan POPT
+            // Catatan: Pastikan HotspotDto punya field 'district' atau kita filter spasial
+            // Untuk sekarang, kita pakai radius 2km sebagai simulasi "Wilayah Kerja"
+
+            val nearbyReports = hotspots.filter {
+                LocationUtils.calculateDistance(userLat, userLon, it.lat, it.lon) <= 2000.0 // 2KM
+            }
+
+            if (nearbyReports.isNotEmpty() && !isWarningNotified) {
+                sendAlertNotification("Info Wilayah", "Ada ${nearbyReports.size} titik hama di area kerja Anda.", false)
+                isWarningNotified = true
+            }
+            return // POPT selesai di sini, tidak perlu alarm bahaya "AWAS HAMA"
+        }
 
         var minDistance = Double.MAX_VALUE
 
