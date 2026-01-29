@@ -3,19 +3,25 @@ package amalia.skripsi.deteksipadi.ui.navigation
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 
 @Composable
-fun BottomNavigationBar(navController: NavController) {
+fun BottomNavigationBar(
+    navController: NavController,
+    items: List<BottomNavItem>
+) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
     NavigationBar(
         containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 8.dp
     ) {
-        BottomNavItem.items.forEach { item ->
+        items.forEach { item ->
             val isSelected = currentRoute == item.route
 
             NavigationBarItem(
@@ -33,19 +39,14 @@ fun BottomNavigationBar(navController: NavController) {
                 },
                 selected = isSelected,
                 onClick = {
-                    if (currentRoute != item.route) {
-                        navController.navigateSingleTopTo(item.route)
-                    }
+                    navController.navigateSingleTopTo(item.route)
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-
-                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurface,
-
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
         }
@@ -53,15 +54,14 @@ fun BottomNavigationBar(navController: NavController) {
 }
 
 fun NavController.navigateSingleTopTo(route: String) {
-    if (route in BottomNavItem.routes()) {
-        this.navigate(route) {
-            popUpTo(this@navigateSingleTopTo.graph.startDestinationId) {
-                saveState = true
-            }
-            launchSingleTop = true
-            restoreState = true
+    this.navigate(route) {
+        // Pop up sampai ke start destination graph agar tidak menumpuk stack
+        popUpTo(this@navigateSingleTopTo.graph.findStartDestination().id) {
+            saveState = true
         }
-    } else {
-        this.navigate(route)
+        // Hindari duplikat destinasi jika diklik berkali-kali
+        launchSingleTop = true
+        // Restore state saat kembali ke tab tersebut
+        restoreState = true
     }
 }

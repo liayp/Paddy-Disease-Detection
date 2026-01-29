@@ -7,6 +7,7 @@ import amalia.skripsi.deteksipadi.ui.screens.petani.detection.ImageUtils.drawDet
 import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -38,10 +39,12 @@ import androidx.navigation.NavController
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.coroutines.resume
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,87 +53,61 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
     val scope = rememberCoroutineScope()
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
-    // --- State Management ---
+    // State
     val scaffoldState = rememberBottomSheetScaffoldState()
-
-    // State Gambar
     val showCapturedImageState = remember { mutableStateOf(false) }
     val capturedBitmapState = remember { mutableStateOf<Bitmap?>(null) }
-
-    // State Hasil Deteksi
     var detectionResults by remember { mutableStateOf<List<DetectionResult>>(emptyList()) }
     var reportLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var isUploading by remember { mutableStateOf(false) }
-
-    // --- STATE BARU: Kontrol Dialog Sukses ---
     var showSuccessDialog by remember { mutableStateOf(false) }
 
-    // --- Tools Setup ---
+    // Tools
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val imageCapture = remember { ImageCapture.Builder().build() }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
-
     val detector = remember {
         try { YoloDetector(context, "best.tflite") } catch (e: Exception) { null }
     }
+
     DisposableEffect(Unit) { onDispose { detector?.close() } }
 
-    // Izin Lokasi & Kamera
     var arePermissionsGranted by remember { mutableStateOf(false) }
     EnsurePermissions(context) { granted -> arePermissionsGranted = granted }
 
-    // FUNGSI RESET
     fun onReset() {
         capturedBitmapState.value = null
         showCapturedImageState.value = false
         detectionResults = emptyList()
         reportLocation = null
-        showSuccessDialog = false // Pastikan dialog tertutup saat reset
+        showSuccessDialog = false
     }
 
-    // Handle Back Button
-    BackHandler(enabled = showCapturedImageState.value) {
-        // Jika dialog muncul, tutup dialog dulu
-        if (showSuccessDialog) {
-            onReset()
-        } else {
-            onReset()
-        }
-    }
+    BackHandler(enabled = showCapturedImageState.value) { onReset() }
 
-    // FUNGSI PROSES
     fun processResult(bmp: Bitmap, location: Pair<Double, Double>?) {
         capturedBitmapState.value = bmp
         showCapturedImageState.value = true
         reportLocation = location
-
-        detector?.let { d ->
-            val results = d.detect(bmp)
-            detectionResults = results
-        }
+        detector?.let { d -> detectionResults = d.detect(bmp) }
     }
 
-    // Launcher Galeri
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val uri = result.data?.data
-            uri?.let {
+            result.data?.data?.let { uri ->
                 scope.launch(Dispatchers.IO) {
-                    val bmp = ImageUtils.loadBitmapFromUri(context, it)
-                    val exifLoc = ImageUtils.getGeoLocation(context, it)
-                    if (bmp != null) {
-                        withContext(Dispatchers.Main) { processResult(bmp, exifLoc) }
-                    }
+                    val bmp = ImageUtils.loadBitmapFromUri(context, uri)
+                    val exifLoc = ImageUtils.getGeoLocation(context, uri)
+                    if (bmp != null) withContext(Dispatchers.Main) { processResult(bmp, exifLoc) }
                 }
             }
         }
     }
 
-    // Capture Kamera
     fun onCameraCapture(bmp: Bitmap) {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
@@ -141,7 +118,26 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
         }
     }
 
-    // --- UI UTAMA ---
+    // --- Helper Function: Ambil Kecamatan secara Aman (Support Android 13+) ---
+    suspend fun getDistrictName(ctx: Context, lat: Double, lon: Double): String = suspendCancellableCoroutine { cont ->
+        val geocoder = Geocoder(ctx, Locale.getDefault())
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                geocoder.getFromLocation(lat, lon, 1) { addresses ->
+                    val name = if (addresses.isNotEmpty()) addresses[0].locality ?: "Tidak Diketahui" else "Tidak Diketahui"
+                    cont.resume(name)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocation(lat, lon, 1)
+                val name = if (!addresses.isNullOrEmpty()) addresses[0].locality ?: "Tidak Diketahui" else "Tidak Diketahui"
+                cont.resume(name)
+            }
+        } catch (e: Exception) {
+            cont.resume("Tidak Diketahui")
+        }
+    }
+
     if (arePermissionsGranted) {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
@@ -149,7 +145,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
             containerColor = MaterialTheme.colorScheme.background,
             sheetContainerColor = Color(0xFFFFF8E1),
             sheetContent = {
-                // Panggil ResultSheetContent
                 ResultSheetContent(
                     results = detectionResults,
                     locationStr = reportLocation?.let { "${it.first}, ${it.second}" },
@@ -157,61 +152,38 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                     onSend = {
                         if (reportLocation != null && capturedBitmapState.value != null) {
                             isUploading = true
-                            scope.launch(Dispatchers.IO) {
 
+                            scope.launch(Dispatchers.IO) {
+                                // 1. Proses Gambar
                                 val markedBitmap = drawDetectionOnBitmap(
                                     originalBitmap = capturedBitmapState.value!!,
                                     results = detectionResults
                                 )
-
                                 val stream = ByteArrayOutputStream()
                                 markedBitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
 
+                                // 2. Ambil Kecamatan (Tunggu sampai selesai)
+                                val kecamatan = getDistrictName(
+                                    context,
+                                    reportLocation!!.first,
+                                    reportLocation!!.second
+                                )
+
+                                // 3. Kirim ke Supabase
                                 val result = submitReportToSupabase(
                                     photoBytes = stream.toByteArray(),
                                     results = detectionResults,
                                     lat = reportLocation!!.first,
-                                    lon = reportLocation!!.second
+                                    lon = reportLocation!!.second,
+                                    districtName = kecamatan // FIX: Nama parameter sesuai
                                 )
-
-                                val geocoder = Geocoder(context, Locale.getDefault())
-                                var kecamatanName = "Unknown"
-
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    geocoder.getFromLocation(reportLocation!!.first, reportLocation!!.second, 1) { addresses ->
-                                        if (addresses.isNotEmpty()) {
-                                            kecamatanName = addresses[0].locality // locality biasanya Kecamatan
-                                        }
-                                    }
-                                } else {
-                                    // Versi lama (Blocking) - jalankan di IO thread
-                                    val addresses = geocoder.getFromLocation(reportLocation!!.first, reportLocation!!.second, 1)
-                                    if (!addresses.isNullOrEmpty()) {
-                                        kecamatanName = addresses[0].locality
-                                    }
-                                }
 
                                 withContext(Dispatchers.Main) {
                                     isUploading = false
-                                    result.onSuccess { responseString ->
-                                        // Gunakan JSONObject untuk mengambil pesan asli dari SQL
-                                        try {
-                                            val jsonObject = org.json.JSONObject(responseString)
-                                            val isSuccess = jsonObject.optBoolean("success")
-                                            val serverMessage = jsonObject.optString("message")
-
-                                            if (isSuccess) {
-                                                showSuccessDialog = true
-                                            } else {
-                                                Toast.makeText(context, "Gagal: $serverMessage", Toast.LENGTH_LONG).show()
-                                            }
-                                        } catch (e: Exception) {
-                                            if (responseString.contains("success\":true")) {
-                                                showSuccessDialog = true
-                                            } else {
-                                                Toast.makeText(context, "Laporan Ditolak Server.", Toast.LENGTH_LONG).show()
-                                            }
-                                        }
+                                    result.onSuccess {
+                                        showSuccessDialog = true
+                                    }.onFailure { e ->
+                                        Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_LONG).show()
                                     }
                                 }
                             }
@@ -225,7 +197,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
             Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 Column {
                     ScannerTopBar(navController, cameraExecutor)
-
                     Box(modifier = Modifier.weight(1f)) {
                         ScannerContent(
                             hasCameraPermission = remember { mutableStateOf(true) },
@@ -239,14 +210,11 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                             context = context,
                             detector = detector,
                             detectionResults = detectionResults,
-                            onRealtimeDetection = {
-                                if (!showCapturedImageState.value) detectionResults = it
-                            },
+                            onRealtimeDetection = { if (!showCapturedImageState.value) detectionResults = it },
                             onClearImage = { onReset() },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-
                     if (!showCapturedImageState.value) {
                         ScannerBottomBar(onGalleryClick = {
                             val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
@@ -254,7 +222,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                         })
                     }
                 }
-
                 if (!showCapturedImageState.value) {
                     Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp)) {
                         ScannerFab(
@@ -264,53 +231,27 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                         )
                     }
                 }
-
-                // --- DIALOG SUKSES (Pop Up) ---
                 if (showSuccessDialog) {
                     AlertDialog(
-                        onDismissRequest = {
-                            // Jika user klik luar dialog, kita reset saja (balik ke kamera)
-                            onReset()
-                        },
-                        icon = {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = PadiGreen, modifier = Modifier.size(48.dp))
-                        },
-                        title = {
-                            Text(text = "Laporan Berhasil Disimpan!")
-                        },
-                        text = {
-                            Text(
-                                text = "Terima kasih. Data deteksi hama telah masuk ke sistem.\n\nKlik tombol di bawah untuk melihat sebaran titik hama di Peta.",
-                                textAlign = TextAlign.Center
-                            )
-                        },
+                        onDismissRequest = { onReset() },
+                        icon = { Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(48.dp)) },
+                        title = { Text("Laporan Terkirim!") },
+                        text = { Text("Data deteksi dan lokasi telah berhasil disimpan ke sistem.", textAlign = TextAlign.Center) },
                         confirmButton = {
                             Button(
                                 onClick = {
-                                    // 1. Tutup dialog & Reset State Scanner
                                     onReset()
-                                    // 2. Navigasi ke Peta (Gunakan nama route yang sesuai di BottomNavItem)
                                     navController.navigate("peta") {
-                                        // Opsional: Pop up sampai home agar back button di peta balik ke home, bukan scanner
                                         popUpTo("home") { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = PadiGreen)
-                            ) {
-                                Text("Lihat di Peta")
-                            }
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                            ) { Text("Lihat Peta") }
                         },
                         dismissButton = {
-                            TextButton(
-                                onClick = {
-                                    // Hanya reset, kembali scan lagi
-                                    onReset()
-                                }
-                            ) {
-                                Text("Scan Lagi", color = Color.Gray)
-                            }
+                            TextButton(onClick = { onReset() }) { Text("Scan Lagi", color = Color.Gray) }
                         }
                     )
                 }

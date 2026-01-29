@@ -2,9 +2,11 @@ package amalia.skripsi.deteksipadi.data
 
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.auth.Auth // <--- PENTING: Import Auth
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
 import kotlinx.serialization.Serializable
@@ -17,6 +19,7 @@ val supabase = createSupabaseClient(
     install(Postgrest)
     install(Storage)
     install(Auth)
+    install(Realtime)
 }
 
 // --- 2. MODEL DATA (DTO) ---
@@ -45,8 +48,8 @@ data class SmartReportParams(
     val p_lat: Double,
     val p_lon: Double,
     val p_details: List<DetectionDetailDto>,
-    // Tambahkan user_id jika Anda sudah update SQL untuk menerima user_id
-    // val p_user_id: String? = null
+    val p_district: String,
+    val p_user_id: String? = null
 )
 
 // --- 3. FUNGSI-FUNGSI API ---
@@ -67,9 +70,13 @@ suspend fun submitReportToSupabase(
     photoBytes: ByteArray,
     results: List<amalia.skripsi.deteksipadi.ml.DetectionResult>,
     lat: Double,
-    lon: Double
+    lon: Double,
+    districtName: String
 ): Result<String> {
     return try {
+        val userId = supabase.auth.currentUserOrNull()?.id
+            ?: return Result.failure(Exception("Anda harus login untuk melapor!"))
+
         val bestResult = results.maxByOrNull { it.score }
         val dominantLabel = bestResult?.label ?: "Tidak Terdeteksi"
         val dominantScore = bestResult?.score ?: 0f
@@ -93,7 +100,9 @@ suspend fun submitReportToSupabase(
             p_confidence = dominantScore,
             p_lat = lat,
             p_lon = lon,
-            p_details = detailsDto
+            p_details = detailsDto,
+            p_district = districtName,
+            p_user_id = userId
         )
 
         val response = supabase.postgrest.rpc("submit_smart_report", params)
