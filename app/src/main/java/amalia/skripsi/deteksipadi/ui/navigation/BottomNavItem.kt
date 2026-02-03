@@ -2,7 +2,6 @@ package amalia.skripsi.deteksipadi.ui.navigation
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
-import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
@@ -28,7 +27,7 @@ sealed class BottomNavItem(
     companion object {
         // Daftar Menu untuk PETANI
         fun petaniRoutes(): List<BottomNavItem> {
-            return listOf(Home, History, Peta, Profile)
+            return listOf(Home, Peta, History, Profile)
         }
 
         // Daftar Menu untuk POPT

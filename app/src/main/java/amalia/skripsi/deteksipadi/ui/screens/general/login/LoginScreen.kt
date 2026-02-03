@@ -3,7 +3,6 @@ package amalia.skripsi.deteksipadi.ui.screens.general.login
 import amalia.skripsi.deteksipadi.R
 import amalia.skripsi.deteksipadi.data.AuthRepository
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,7 +41,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     // --- STATE UI ---
     var isLoading by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableStateOf(0) } // 0=Masuk, 1=Daftar
+    var selectedTab by remember { mutableIntStateOf(0) } // 0=Masuk, 1=Daftar
     var selectedRole by remember { mutableStateOf("petani") }
 
     // --- STATE ERROR (VALIDASI) ---
@@ -216,7 +215,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                                     val msg = e.message?.lowercase() ?: ""
                                     generalError = when {
                                         msg.contains("invalid login") -> "Email atau password salah."
-                                        msg.contains("email not confirmed") -> "Email belum diverifikasi. Cek inbox Anda."
+                                        msg.contains("email not confirmed") -> "Akun sudah dibuat tapi belum aktif. Silakan cek Inbox/Spam email Anda untuk verifikasi."
                                         else -> "Login Gagal: ${e.message}"
                                     }
                                 }

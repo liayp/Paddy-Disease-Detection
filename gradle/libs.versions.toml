@@ -77,6 +77,7 @@ postgrest-kt = { module = "io.github.jan-tennert.supabase:postgrest-kt", version
 realtime-kt = { module = "io.github.jan-tennert.supabase:realtime-kt" }
 storage-kt = { module = "io.github.jan-tennert.supabase:storage-kt", version.ref = "storageKt" }
 supabase-postgrest-kt = { module = "io.github.jan-tennert.supabase:postgrest-kt" }
+supabase-realtime-kt = { module = "io.github.jan-tennert.supabase:realtime-kt" }
 tensorflow-lite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tensorflowLite" }
 tensorflow-lite-gpu = { module = "org.tensorflow:tensorflow-lite-gpu", version.ref = "tensorflowLiteGpu" }
 tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-support" }

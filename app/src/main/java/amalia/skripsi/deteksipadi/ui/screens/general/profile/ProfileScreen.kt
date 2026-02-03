@@ -50,7 +50,7 @@ fun ProfileScreen(
     }
 
     Scaffold(
-        containerColor = Color(0xFFF5F5F5) // Background Abu Muda (Clean Look)
+        containerColor = Color(0xFFF5F5F5)
     ) { padding ->
         Column(
             modifier = Modifier
@@ -58,38 +58,37 @@ fun ProfileScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState()) // Agar bisa discroll di HP kecil
         ) {
-            // ================= HEADER SECTION =================
+            // HEADER SECTION
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp) // Tinggi area header
+                    .height(230.dp)
             ) {
-                // 1. Background Gradient Hijau Melengkung
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp)
+                        .height(160.dp)
                         .background(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    MaterialTheme.colorScheme.primary,       // Hijau Tua
-                                    MaterialTheme.colorScheme.primaryContainer // Hijau Muda
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.primaryContainer
                                 )
                             ),
                             shape = RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp)
                         )
                 )
 
-                // 2. Foto Profil (Floating di tengah)
+                // Foto Profil (Floating di tengah)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .size(130.dp) // Ukuran Foto Besar
+                        .size(130.dp)
                         .clip(CircleShape)
-                        .background(Color.White) // Border Putih
-                        .padding(4.dp) // Ketebalan Border
+                        .background(Color.White)
+                        .padding(4.dp)
                         .clip(CircleShape)
-                        .background(Color.LightGray), // Placeholder abu
+                        .background(Color.LightGray),
                     contentAlignment = Alignment.Center
                 ) {
                     if (!userProfile?.avatar_url.isNullOrEmpty()) {
@@ -117,7 +116,7 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // ================= IDENTITAS USER =================
+            // IDENTITAS USER
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
@@ -125,7 +124,6 @@ fun ProfileScreen(
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
                 } else {
-                    // Nama Lengkap
                     Text(
                         text = userProfile?.full_name ?: "Pengguna",
                         style = MaterialTheme.typography.headlineSmall,
@@ -135,7 +133,6 @@ fun ProfileScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Chip Role (Desain Kustom)
                     Surface(
                         color = if (userProfile?.role == "popt") Color(0xFFE3F2FD) else Color(0xFFE8F5E9),
                         shape = RoundedCornerShape(50),
@@ -165,7 +162,7 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // ================= DETAIL INFORMASI (KARTU) =================
+            // DETAIL INFORMASI (KARTU)
             Column(modifier = Modifier.padding(horizontal = 24.dp)) {
 
                 Text(
@@ -186,7 +183,7 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Kartu User ID (Opsional, agar terlihat teknis/resmi)
+                // Kartu User ID
                 ProfileInfoCard(
                     icon = Icons.Default.Person,
                     label = "ID Pengguna",
@@ -207,7 +204,7 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                // ================= TOMBOL LOGOUT =================
+                // TOMBOL LOGOUT
                 Button(
                     onClick = onLogout,
                     colors = ButtonDefaults.buttonColors(
@@ -247,7 +244,7 @@ fun ProfileScreen(
     }
 }
 
-// --- KOMPONEN KARTU INFORMASI (Reusable) ---
+// KOMPONEN KARTU INFORMASI (Reusable)
 @Composable
 fun ProfileInfoCard(
     icon: ImageVector,

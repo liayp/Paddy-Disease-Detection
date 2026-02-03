@@ -98,6 +98,8 @@ dependencies {
     implementation(libs.auth.kt)
     implementation(libs.realtime.kt)
 
+    implementation(libs.supabase.realtime.kt)
+
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
