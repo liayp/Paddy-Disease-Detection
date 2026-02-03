@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -15,6 +16,7 @@ import java.nio.ByteBuffer
 import androidx.core.graphics.createBitmap
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 
 object ImageUtils {
 
@@ -141,13 +143,35 @@ object ImageUtils {
         return mutableBitmap
     }
 
+    fun getAddressName(context: Context, lat: Double, lon: Double): Triple<String, String, String> {
+        var kecamatan = "Tidak Diketahui"
+        var kelurahan = "Tidak Diketahui"
+        var fullAddress = "Tidak Diketahui"
+
+        try {
+            val geocoder = Geocoder(context, Locale("id", "ID"))
+            val addresses = geocoder.getFromLocation(lat, lon, 1)
+
+            if (!addresses.isNullOrEmpty()) {
+                val address = addresses[0]
+                kecamatan = address.locality ?: address.subAdminArea ?: "-"
+                kelurahan = address.subLocality ?: "-"
+                fullAddress = address.getAddressLine(0) ?: "-"
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return Triple(kecamatan, kelurahan, fullAddress)
+    }
+
     fun getGeoLocation(context: Context, uri: Uri): Pair<Double, Double>? {
         return try {
             // 1. Coba dapatkan URI asli (Un-redacted)
             val photoUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     MediaStore.setRequireOriginal(uri)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     uri // Fallback jika bukan dari MediaStore
                 }
             } else {

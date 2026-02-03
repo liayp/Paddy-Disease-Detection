@@ -122,4 +122,15 @@ dependencies {
 
     //coil
     implementation(libs.coil.compose)
+
+    //room
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    //WorkManager
+    implementation(libs.androidx.work.runtime.ktx)
+
+    //GSON
+    implementation(libs.gson)
 }

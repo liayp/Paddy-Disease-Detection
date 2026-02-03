@@ -6,6 +6,7 @@ credentials = "1.5.0"
 googleid = "1.2.0"
 gotrueKt = "2.6.1"
 gotrueKtVersion = "3.1.0"
+gson = "2.10.1"
 kotlin = "2.2.21"
 coreKtx = "1.15.0"
 junit = "4.13.2"
@@ -27,6 +28,9 @@ cameraxVersion = "1.4.0"
 playServicesLocation = "21.3.0"
 playServicesLocationVersion = "21.0.1"
 postgrestKt = "3.2.6"
+roomCompiler = "2.8.4"
+roomKtx = "2.8.4"
+roomRuntime = "2.8.4"
 storageKt = "3.2.6"
 tensorflowLite = "2.17.0"
 tensorflowLiteGpu = "2.17.0"
@@ -36,15 +40,24 @@ googleAndroidLibrariesMapsplatformSecretsGradlePlugin = "2.0.1"
 playServicesMaps = "19.2.0"
 appcompat = "1.7.1"
 constraintlayout = "2.2.1"
+workRuntimeKtx = "2.11.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
 androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
+androidx-room-compiler = { module = "androidx.room:room-compiler" }
+androidx-room-ktx = { module = "androidx.room:room-ktx" }
+androidx-room-runtime = { module = "androidx.room:room-runtime" }
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workRuntimeKtx" }
 auth-kt = { module = "io.github.jan-tennert.supabase:auth-kt" }
 bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "bom" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coilCompose" }
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
+gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+room-compiler = { module = "androidx.room:room-compiler", version.ref = "roomCompiler" }
+room-ktx = { module = "androidx.room:room-ktx", version.ref = "roomKtx" }
+room-runtime = { module = "androidx.room:room-runtime", version.ref = "roomRuntime" }
 supabase-gotrue-kt = { module = "io.github.jan-tennert.supabase:gotrue-kt", version.ref = "gotrueKt" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

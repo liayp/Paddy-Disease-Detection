@@ -1,17 +1,19 @@
 package amalia.skripsi.deteksipadi.data
 
+import amalia.skripsi.deteksipadi.ml.DetectionResult
 import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.auth.Auth // <--- PENTING: Import Auth
+import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
 import kotlinx.serialization.Serializable
+import org.slf4j.helpers.Util.report
 
-// --- 1. SETUP CLIENT ---
 val supabase = createSupabaseClient(
     supabaseUrl = "https://gyhvaxwqjubznzivmyqo.supabase.co",
     supabaseKey = "sb_publishable_nioGHUXmUEc_cu2NCRlP3g_YJKoNhIt"
@@ -22,7 +24,6 @@ val supabase = createSupabaseClient(
     install(Realtime)
 }
 
-// --- 2. MODEL DATA (DTO) ---
 
 @Serializable
 data class HotspotDto(
@@ -41,6 +42,82 @@ data class DetectionDetailDto(
 )
 
 @Serializable
+data class DetectionBoxDto(
+    val label: String,
+    val score: Float,
+    val box: List<Float>
+)
+
+@Serializable
+data class ReportDto(
+    val image_url: String,
+    val ai_label: String,
+    val confidence: Float,
+    val status: String = "active",
+    val location: String,
+    val lat: Double,
+    val lon: Double,
+    val kecamatan: String?,
+    val kelurahan: String?,
+    val address_detail: String?,
+    val user_id: String,
+    val detection_details: List<DetectionBoxDto>
+)
+
+suspend fun submitReportToSupabase(
+    photoBytes: ByteArray,
+    results: List<DetectionResult>,
+    lat: Double,
+    lon: Double,
+    kecamatan: String,
+    kelurahan: String,
+    addressDetail: String,
+    userId: String
+): Result<String> {
+    return try {
+        val fileName = "report_${System.currentTimeMillis()}.jpg"
+        val bucket = supabase.storage.from("evidence_photos")
+        bucket.upload(fileName, photoBytes)
+        val publicUrl = bucket.publicUrl(fileName)
+
+        val bestResult = results.maxByOrNull { it.score }
+        val dominantLabel = bestResult?.label ?: "Tidak Terdeteksi"
+        val dominantScore = bestResult?.score ?: 0f
+
+        val detailsList = results.map {
+            DetectionBoxDto(
+                label = it.label,
+                score = it.score,
+                // Simpan koordinat box biar POPT bisa lihat di dashboard nanti
+                box = listOf(it.box.left, it.box.top, it.box.right, it.box.bottom)
+            )
+        }
+
+        val locationString = "SRID=4326;POINT($lon $lat)"
+
+        val report = ReportDto(
+            image_url = publicUrl,
+            ai_label = dominantLabel,
+            confidence = dominantScore,
+            location = locationString,
+            lat = lat,
+            lon = lon,
+            kecamatan = kecamatan,
+            kelurahan = kelurahan,
+            address_detail = addressDetail,
+            user_id = userId,
+            detection_details = detailsList
+        )
+        supabase.from("reports").insert(report)
+
+        Result.success("Berhasil")
+    } catch (e: Exception) {
+        e.printStackTrace()
+        Result.failure(e)
+    }
+}
+
+@Serializable
 data class SmartReportParams(
     val p_image_url: String,
     val p_ai_label: String,
@@ -52,9 +129,9 @@ data class SmartReportParams(
     val p_user_id: String? = null
 )
 
-// --- 3. FUNGSI-FUNGSI API ---
+// --- FUNGSI-FUNGSI API ---
 
-// Fungsi A: Fetch Data Peta
+// Fetch Data Peta
 suspend fun fetchActiveHotspots(): List<HotspotDto> {
     return try {
         val result = supabase.postgrest.rpc("get_active_hotspots")
@@ -65,7 +142,7 @@ suspend fun fetchActiveHotspots(): List<HotspotDto> {
     }
 }
 
-// Fungsi B: Kirim Laporan
+// Kirim Laporan
 suspend fun submitReportToSupabase(
     photoBytes: ByteArray,
     results: List<amalia.skripsi.deteksipadi.ml.DetectionResult>,
@@ -105,10 +182,9 @@ suspend fun submitReportToSupabase(
             p_user_id = userId
         )
 
-        val response = supabase.postgrest.rpc("submit_smart_report", params)
+        supabase.from("reports")
 
-        // Return JSON Murni
-        Result.success(response.data)
+        Result.success("Berhasil")
     } catch (e: Exception) {
         e.printStackTrace()
         Result.failure(e)

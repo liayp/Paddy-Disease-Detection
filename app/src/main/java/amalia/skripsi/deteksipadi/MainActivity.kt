@@ -3,6 +3,7 @@ package amalia.skripsi.deteksipadi
 import amalia.skripsi.deteksipadi.ui.navigation.AppNavigation
 import amalia.skripsi.deteksipadi.ui.navigation.MainScreen
 import amalia.skripsi.deteksipadi.ui.theme.DeteksiPadiTheme
+import amalia.skripsi.deteksipadi.util.NetworkMonitor
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -27,8 +28,14 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private lateinit var networkMonitor: NetworkMonitor
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        networkMonitor = NetworkMonitor(this)
+        networkMonitor.startMonitoring()
+
         setContent {
             DeteksiPadiTheme {
                 // --- LOGIKA IZIN NOTIFIKASI (START) ---
