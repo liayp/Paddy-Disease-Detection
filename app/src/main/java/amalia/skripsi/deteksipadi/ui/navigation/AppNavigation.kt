@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.navigation
 
 import amalia.skripsi.deteksipadi.data.AuthRepository
+import amalia.skripsi.deteksipadi.data.supabase // <--- Pastikan import variable client supabase Anda
 import amalia.skripsi.deteksipadi.ui.screens.general.login.LoginScreen
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import io.github.jan.supabase.auth.auth // Import ini
 import kotlinx.coroutines.launch
 
 @Composable
@@ -21,30 +23,31 @@ fun AppNavigation() {
     val scope = rememberCoroutineScope()
     val authRepo = remember { AuthRepository(context) }
 
-    // State untuk menentukan start destination dan role
     var startDestination by remember { mutableStateOf<String?>(null) }
-    var userRole by remember { mutableStateOf<String?>(null) } // 'petani' atau 'popt'
+    var userRole by remember { mutableStateOf<String?>(null) }
 
     // Cek Login & Ambil Role saat pertama kali dibuka
     LaunchedEffect(Unit) {
-        if (authRepo.isUserLoggedIn()) {
-            // Jika sudah login, ambil profil dulu dari DB
+
+        val isSessionRestored = supabase.auth.loadFromStorage()
+
+        if (isSessionRestored || authRepo.isUserLoggedIn()) {
+
             val profile = authRepo.getUserProfile()
+
             if (profile != null) {
                 userRole = profile.role
-                startDestination = "main" // Lanjut ke MainScreen dengan role
+                startDestination = "main"
             } else {
-                // Fallback jika gagal ambil profil (misal koneksi putus), anggap belum login atau error
-                // Opsi lain: tetap masuk sebagai 'petani' default, tapi lebih aman suruh login ulang
                 authRepo.logout()
                 startDestination = "login"
             }
         } else {
+            // Tidak ada session tersimpan -> Ke Login Screen
             startDestination = "login"
         }
     }
 
-    // Tampilkan Loading selama startDestination belum ditentukan
     if (startDestination == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -52,14 +55,13 @@ fun AppNavigation() {
     } else {
         NavHost(navController = navController, startDestination = startDestination!!) {
 
-            // --- RUTE 1: LOGIN ---
             composable("login") {
                 LoginScreen(
                     onLoginSuccess = {
-                        // Saat sukses login baru, kita perlu fetch role lagi sebelum pindah
                         scope.launch {
+                            // Fetch role saat login baru berhasil
                             val profile = authRepo.getUserProfile()
-                            userRole = profile?.role ?: "petani" // Default jika gagal fetch
+                            userRole = profile?.role ?: "petani"
                             navController.navigate("main") {
                                 popUpTo("login") { inclusive = true }
                             }
@@ -68,17 +70,15 @@ fun AppNavigation() {
                 )
             }
 
-            // --- RUTE 2: MAIN APP (Dashboard) ---
             composable("main") {
-                // Oper userRole ke MainScreen
                 MainScreen(
-                    userRole = userRole ?: "petani", // Kirim role yang didapat
+                    userRole = userRole ?: "petani",
                     onLogout = {
                         scope.launch {
-                            authRepo.logout()
-                            userRole = null // Reset role
+                            authRepo.logout() // Ini akan menghapus session di Storage
+                            userRole = null
                             navController.navigate("login") {
-                                popUpTo(0)
+                                popUpTo(0) // Hapus history backstack
                             }
                         }
                     }
