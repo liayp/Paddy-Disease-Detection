@@ -1,23 +1,25 @@
 package amalia.skripsi.deteksipadi.services
 
 import amalia.skripsi.deteksipadi.MainActivity
-import amalia.skripsi.deteksipadi.R
 import amalia.skripsi.deteksipadi.data.AuthRepository
+import amalia.skripsi.deteksipadi.data.HazardRepository
 import amalia.skripsi.deteksipadi.data.HotspotDto
 import amalia.skripsi.deteksipadi.data.UserProfile
 import amalia.skripsi.deteksipadi.data.fetchActiveHotspots
 import amalia.skripsi.deteksipadi.data.supabase
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils
-import android.app.*
+import amalia.skripsi.deteksipadi.util.NotificationHelper
+import android.app.PendingIntent
+import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.google.android.gms.location.*
+import dagger.hilt.android.AndroidEntryPoint
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
@@ -26,8 +28,13 @@ import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import javax.inject.Inject
 
+@AndroidEntryPoint // WAJIB AGAR BISA INJECT REPOSITORY
 class HazardDetectionService : Service() {
+
+    @Inject
+    lateinit var hazardRepository: HazardRepository // Inject Repository
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -38,7 +45,7 @@ class HazardDetectionService : Service() {
     private var userProfile: UserProfile? = null
     private var realtimeChannel: RealtimeChannel? = null
 
-    // State Debounce Notifikasi Geofencing
+    // State Debounce Notifikasi
     private var isDangerNotified = false
     private var isWarningNotified = false
 
@@ -46,31 +53,27 @@ class HazardDetectionService : Service() {
         const val CHANNEL_ID_SERVICE = "channel_service_running"
         const val CHANNEL_ID_ALERT = "channel_alert_urgent"
         const val NOTIF_ID_SERVICE = 1
-        const val NOTIF_ID_ALERT = 2
     }
 
     override fun onCreate() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        createNotificationChannels()
 
         // Inisialisasi Data & Role Check
         serviceScope.launch {
             try {
+                // Manual construct karena AuthRepository butuh context, atau inject juga bisa
                 val authRepo = AuthRepository(this@HazardDetectionService)
                 userProfile = authRepo.getUserProfile()
 
-                // Ambil data hotspot untuk geofencing (hanya jika diperlukan)
+                // Ambil data hotspot untuk geofencing (hanya jika petani)
                 if (userProfile?.role != "popt") {
                     hotspots = fetchActiveHotspots()
                 }
 
-                // Percabangan Logika Berdasarkan Role
                 if (userProfile?.role == "popt") {
-                    // POPT: Memantau Database Realtime
                     setupPoptRealtimeListener()
                 } else {
-                    // PETANI: Memantau Lokasi GPS (Geofencing)
                     startLocationUpdates()
                 }
             } catch (e: Exception) {
@@ -78,10 +81,8 @@ class HazardDetectionService : Service() {
             }
         }
 
-        // Setup Location Callback (Geofencing)
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                // Double check: POPT tidak butuh kalkulasi jarak ini
                 if (userProfile?.role != "popt") {
                     for (location in result.locations) {
                         checkGeofenceForFarmer(location.latitude, location.longitude)
@@ -92,7 +93,22 @@ class HazardDetectionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = createOngoingNotification()
+        // --- PERBAIKAN: Gunakan NotificationHelper agar Icon Benar ---
+        val appIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, appIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notification = NotificationHelper.buildNotification(
+            context = this,
+            title = "Sistem Deteksi Padi Aktif",
+            message = "Memantau lokasi di latar belakang...",
+            channelId = CHANNEL_ID_SERVICE,
+            channelName = "Service Berjalan",
+            intent = pendingIntent,
+            isOngoing = true
+        )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(this, NOTIF_ID_SERVICE, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
@@ -100,26 +116,20 @@ class HazardDetectionService : Service() {
             startForeground(NOTIF_ID_SERVICE, notification)
         }
 
-        // Location updates hanya akan dipicu di onCreate jika role != popt
         return START_STICKY
     }
 
     private suspend fun setupPoptRealtimeListener() {
         try {
             realtimeChannel = supabase.realtime.channel("public-reports-popt")
-
-            // Menggunakan syntax flow modern dengan Generics <Insert>
             val changeFlow = realtimeChannel!!.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                 table = "reports"
             }
-
             realtimeChannel!!.subscribe()
 
             changeFlow.collect { action ->
                 val record = action.record
                 val incomingDistrict = record["district"]?.jsonPrimitive?.contentOrNull
-
-                // Filter Personal: Cek apakah kecamatan laporan ada di WKPP POPT ini
                 val myWkpp = userProfile?.wkpp_kecamatan ?: emptyList()
                 val isRelevant = myWkpp.any { it.equals(incomingDistrict, ignoreCase = true) }
 
@@ -142,86 +152,76 @@ class HazardDetectionService : Service() {
             if (dist < minDistance) minDistance = dist
         }
 
+        val isDanger = minDistance <= 300.0
+        hazardRepository.setDangerStatus(isDanger, minDistance)
+
         when {
             minDistance <= 20.0 -> {
+                // Hanya kirim notifikasi jika sebelumnya belum ditandai Danger
                 if (!isDangerNotified) {
-                    sendAlertNotification("BAHAYA! HAMA SANGAT DEKAT!", "Jarak < 20m dari posisi Anda.", true)
-                    isDangerNotified = true; isWarningNotified = true
+                    sendAlertNotification(
+                        "BAHAYA! HAMA SANGAT DEKAT!",
+                        "Jarak hama: ${minDistance.toInt()} meter dari Anda.",
+                        true
+                    )
+                    isDangerNotified = true
+                    isWarningNotified = true
                 }
             }
             minDistance <= 300.0 -> {
+                // Hanya kirim jika sebelumnya dari zona aman (Aman -> Waspada)
                 if (!isWarningNotified) {
-                    sendAlertNotification("Memasuki Area Rawan", "Terdeteksi hama dalam radius 300m.", false)
-                    isWarningNotified = true; isDangerNotified = false
+                    sendAlertNotification(
+                        "Memasuki Area Waspada Hama",
+                        "Terdeteksi hama dalam ${minDistance.toInt()}m.",
+                        false
+                    )
+                    isWarningNotified = true
+                    isDangerNotified = false
                 }
             }
             else -> {
-                isWarningNotified = false; isDangerNotified = false
+                isDangerNotified = false
+                isWarningNotified = false
             }
         }
     }
 
     private fun sendTargetedNotification(hamaLabel: String, kecamatan: String) {
-        // Intent untuk membuka Daftar Laporan saat diklik
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("navigate_to", "popt_reports")
         }
-
         val pendingIntent = PendingIntent.getActivity(
             this, System.currentTimeMillis().toInt(), intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERT)
-            .setContentTitle("Laporan Baru: $hamaLabel")
-            .setContentText("Masuk di wilayah binaan Anda (Kec. $kecamatan).")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .setDefaults(NotificationCompat.DEFAULT_ALL) // Suara & Getar Default
-            .build()
-
-        getSystemService(NotificationManager::class.java).notify(System.currentTimeMillis().toInt(), notification)
+        // Gunakan Helper juga agar konsisten
+        NotificationHelper.showNotification(
+            context = this,
+            title = "Laporan Baru: $hamaLabel",
+            message = "Masuk di wilayah binaan Anda (Kec. $kecamatan).",
+            channelId = CHANNEL_ID_ALERT,
+            channelName = "Laporan Masuk",
+            intent = pendingIntent,
+            isUrgent = true
+        )
     }
 
     private fun sendAlertNotification(title: String, content: String, isUrgent: Boolean) {
-        val pattern = if (isUrgent) longArrayOf(0, 500, 200, 500) else longArrayOf(0, 200)
+        val intent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERT)
-            .setContentTitle(title)
-            .setContentText(content)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setVibrate(pattern)
-            .build()
-
-        getSystemService(NotificationManager::class.java).notify(NOTIF_ID_ALERT, notification)
-    }
-
-    private fun createOngoingNotification(): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID_SERVICE)
-            .setContentTitle("Sistem Deteksi Padi Aktif")
-            .setContentText("Memantau wilayah & lokasi di latar belakang...")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .build()
-    }
-
-    private fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-
-            val serviceChannel = NotificationChannel(CHANNEL_ID_SERVICE, "Status Service", NotificationManager.IMPORTANCE_MIN)
-            manager.createNotificationChannel(serviceChannel)
-
-            val alertChannel = NotificationChannel(CHANNEL_ID_ALERT, "Peringatan Hama", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Notifikasi Urgent Laporan & Geofence"
-                enableVibration(true)
-            }
-            manager.createNotificationChannel(alertChannel)
-        }
+        NotificationHelper.showNotification(
+            context = this,
+            title = title,
+            message = content,
+            channelId = "hazard_channel", // Pastikan channel ID konsisten
+            channelName = "Peringatan Bahaya",
+            intent = pendingIntent,
+            isUrgent = isUrgent
+        )
     }
 
     private fun startLocationUpdates() {

@@ -8,6 +8,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -16,9 +17,11 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import javax.inject.Inject
 
-class AuthRepository(private val context: Context) {
-
+class AuthRepository @Inject constructor(
+    @ApplicationContext private val context: Context //
+) {
     // Ganti dengan Web Client ID dari Google Cloud Console Anda
     private val WEB_CLIENT_ID = "212921453036-bt21jje8evthgbo89tlgsani8a6srl92.apps.googleusercontent.com"
 

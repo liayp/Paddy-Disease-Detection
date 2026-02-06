@@ -1,11 +1,15 @@
 package amalia.skripsi.deteksipadi.workers
 
+import amalia.skripsi.deteksipadi.MainActivity
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.submitReportToSupabase
 import amalia.skripsi.deteksipadi.data.supabase
 import amalia.skripsi.deteksipadi.ml.DetectionResult
 import amalia.skripsi.deteksipadi.ui.screens.petani.detection.ImageUtils
+import amalia.skripsi.deteksipadi.util.NotificationHelper
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.graphics.RectF
 import android.util.Log
 import androidx.room.Room
@@ -18,6 +22,26 @@ class UploadWorker(
     context: Context,
     workerParams: WorkerParameters
 ) : CoroutineWorker(context, workerParams) {
+
+    private fun sendSuccessNotification(hamaLabel: String) {
+        val intent = Intent(applicationContext, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("navigate_to", "history")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            applicationContext, 0, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        NotificationHelper.showNotification(
+            context = applicationContext,
+            title = "Laporan Terkirim! ✅",
+            message = "Deteksi '$hamaLabel' berhasil diupload ke sistem.",
+            channelId = "upload_channel",
+            channelName = "Laporan Terkirim",
+            intent = pendingIntent
+        )
+    }
 
     override suspend fun doWork(): Result {
         Log.d("UploadWorker", "--- WORKER DIMULAI ---")
@@ -84,6 +108,8 @@ class UploadWorker(
                     if (result.isSuccess) {
                         dao.deleteReport(report.id)
                         file.delete()
+
+                        sendSuccessNotification(report.label)
                     } else {
                         Log.e("UploadWorker", "Gagal Upload: ${result.exceptionOrNull()}")
                         isAllSuccess = false

@@ -27,13 +27,14 @@ fun BottomNavigationBar(
             NavigationBarItem(
                 icon = {
                     Icon(
-                        imageVector = item.icon,
-                        contentDescription = item.label
+                        // Menggunakan Selected/Unselected Icon biar dinamis
+                        imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
+                        contentDescription = item.title
                     )
                 },
                 label = {
                     Text(
-                        text = item.label,
+                        text = item.title,
                         style = MaterialTheme.typography.labelMedium
                     )
                 },
@@ -53,15 +54,16 @@ fun BottomNavigationBar(
     }
 }
 
+// Fungsi Navigasi Pintar (Agar tombol Home mereset stack)
 fun NavController.navigateSingleTopTo(route: String) {
     this.navigate(route) {
-        // Pop up sampai ke start destination graph agar tidak menumpuk stack
+        // Pop up sampai ke start destination (Home)
         popUpTo(this@navigateSingleTopTo.graph.findStartDestination().id) {
             saveState = true
         }
-        // Hindari duplikat destinasi jika diklik berkali-kali
+        // Hindari duplikat
         launchSingleTop = true
-        // Restore state saat kembali ke tab tersebut
+        // Restore state
         restoreState = true
     }
 }

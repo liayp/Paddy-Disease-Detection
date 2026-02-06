@@ -12,8 +12,6 @@ import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.ReportDetailScreen
-// Import Screen POPT Baru (Nanti kita buat filenya di Tahap 2)
-// import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -50,30 +48,33 @@ fun MainScreen(
         if (userRole == "popt") BottomNavItem.poptRoutes() else BottomNavItem.petaniRoutes()
     }
 
-    // Cek apakah route sekarang termasuk di bottom bar (menggunakan allRoutes)
+    // Cek apakah route sekarang termasuk di bottom bar
     val isMainTab = currentRoute in BottomNavItem.allRoutes()
 
     Scaffold(
         bottomBar = {
-            // Tampilkan BottomBar hanya di tab utama
             if (isMainTab) {
-                // Gunakan Box agar bisa menumpuk Scanner Button di tengah (Hanya untuk Petani)
                 if (userRole == "petani") {
                     Box(
                         modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.BottomCenter
                     ) {
-                        // Kirim items yang sudah difilter ke BottomNavigationBar
+                        // Bottom Bar
                         BottomNavigationBar(navController = navController, items = bottomBarItems)
 
-                        // Tombol Scanner Tengah (Hanya Petani)
+                        // Tombol Scanner Tengah (Floating)
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .offset(y = (-28).dp)
                                 .size(56.dp)
                                 .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
-                                .clickable { navController.navigateSingleTopTo(SCANNER_ROUTE) },
+                                .clickable {
+                                    // Navigasi Scanner (LaunchSingleTop saja, jangan PopUpTo Home agar bisa Back)
+                                    navController.navigate(SCANNER_ROUTE) {
+                                        launchSingleTop = true
+                                    }
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -85,13 +86,11 @@ fun MainScreen(
                         }
                     }
                 } else {
-                    // Untuk POPT, tampilkan BottomBar biasa tanpa tombol tengah
                     BottomNavigationBar(navController = navController, items = bottomBarItems)
                 }
             }
         },
     ) { innerPadding ->
-        // ... (contentModifier logic sama) ...
         val contentModifier = if (currentRoute == SCANNER_ROUTE) {
             Modifier
         } else {
@@ -105,7 +104,6 @@ fun MainScreen(
         ) {
             // --- ROUTE UMUM ---
             composable(BottomNavItem.Home.route) {
-                // Bisa dibuat HomeScreen berbeda untuk POPT jika mau dashboard beda
                 HomeScreen(navController = navController)
             }
 
