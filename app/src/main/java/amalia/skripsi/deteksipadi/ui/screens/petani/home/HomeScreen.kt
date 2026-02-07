@@ -43,11 +43,9 @@ fun HomeScreen(
 ) {
     val isDanger by viewModel.isGeofenceDanger.collectAsStateWithLifecycle()
     val distance by viewModel.distanceToHama.collectAsStateWithLifecycle()
-
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    // Refresh data saat layar dibuka (biar sinkron kalau baru lapor)
     LaunchedEffect(Unit) {
         viewModel.refreshData()
     }
@@ -59,17 +57,16 @@ fun HomeScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 20.dp)
     ) {
-        // 1. HEADER
-        HomeHeader(state.userName) { /* To Notif */ }
+        HomeHeader(state.userName) {
+            Toast.makeText(context, "Fitur Notifikasi", Toast.LENGTH_SHORT).show()
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // 2. HERO STATUS (Animasi Radar & Gradasi)
         HeroStatusCard(isDanger = isDanger, distance = distance)
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // 3. STATISTIK
         Text(
             text = "Ringkasan Aktivitas",
             style = MaterialTheme.typography.titleMedium,
@@ -83,23 +80,22 @@ fun HomeScreen(
                 icon = Icons.Outlined.Assignment,
                 count = state.totalReports.toString(),
                 label = "Total Laporan",
-                iconBgColor = MaterialTheme.colorScheme.primaryContainer,
-                iconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                iconBgColor = MaterialTheme.colorScheme.primary,
+                iconColor = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             StatCard(
                 icon = Icons.Outlined.History,
                 count = state.pendingReports.toString(),
                 label = "Menunggu",
-                iconBgColor = MaterialTheme.colorScheme.tertiaryContainer,
-                iconColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                iconBgColor = Color.DarkGray,
+                iconColor = Color.DarkGray,
                 modifier = Modifier.weight(1f)
             )
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // 4. PANTAUAN TERAKHIR (Dynamic: Local or Server)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -112,9 +108,7 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             TextButton(onClick = {
-                navController.navigate("history") {
-                    launchSingleTop = true
-                }
+                navController.navigate("history") { launchSingleTop = true }
             }) {
                 Text("Lihat Semua")
             }
@@ -127,22 +121,19 @@ fun HomeScreen(
                 report = state.reportDisplay!!,
                 onClick = {
                     if (state.reportDisplay!!.isFromLocal) {
-                        Toast.makeText(context, "Laporan ini sedang menunggu sinyal internet...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Laporan menunggu sinyal...", Toast.LENGTH_SHORT).show()
                     } else {
                         navController.navigate("history")
                     }
                 }
             )
         } else {
-            // FIX: Navigasi Scan diperbaiki (pastikan rute "scan" benar di NavHost kamu)
             EmptyStateCard(onClick = { navController.navigate("scan") })
         }
 
         Spacer(modifier = Modifier.height(100.dp))
     }
 }
-
-// --- KOMPONEN UI ---
 
 @Composable
 fun HomeHeader(userName: String, onNotifClick: () -> Unit) {
@@ -175,11 +166,9 @@ fun HomeHeader(userName: String, onNotifClick: () -> Unit) {
 
 @Composable
 fun HeroStatusCard(isDanger: Boolean, distance: Double) {
-    // Gradasi Warna Tema (Bukan Hardcoded)
     val gradientColors = if (isDanger) {
         listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.errorContainer)
     } else {
-        // Hijau tema (Primary ke Inverse/Secondary)
         listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)
     }
 
@@ -187,7 +176,6 @@ fun HeroStatusCard(isDanger: Boolean, distance: Double) {
     val title = if (isDanger) "WASPADA: ZONA HAMA" else "Sistem Aktif Memantau"
     val subtitle = if (isDanger) "Hama terdeteksi ${distance.toInt()} meter di dekat Anda!" else "Wilayah Anda terpantau aman."
 
-    // Animasi Radar
     val infiniteTransition = rememberInfiniteTransition(label = "radar")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f, targetValue = 1.4f,
@@ -205,7 +193,6 @@ fun HeroStatusCard(isDanger: Boolean, distance: Double) {
                 .background(Brush.linearGradient(gradientColors))
                 .padding(24.dp)
         ) {
-            // Efek Radar
             Box(modifier = Modifier.align(Alignment.TopEnd)) {
                 Box(modifier = Modifier.size(80.dp).scale(scale).border(2.dp, Color.White.copy(alpha = alpha), CircleShape))
                 Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape).align(Alignment.Center))
@@ -222,7 +209,7 @@ fun HeroStatusCard(isDanger: Boolean, distance: Double) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Real-time background service", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
+                    Text("Pantauan lokasi realtime aktif", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
                 }
             }
         }
@@ -238,7 +225,7 @@ fun StatCard(icon: ImageVector, count: String, label: String, iconBgColor: Color
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Box(modifier = Modifier.background(iconBgColor, CircleShape).padding(10.dp)) {
+            Box(modifier = Modifier.background(iconBgColor.copy(alpha = 0.2f), CircleShape).padding(10.dp)) {
                 Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -257,7 +244,6 @@ fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            // Thumbnail
             Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.size(70.dp)) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
@@ -278,11 +264,10 @@ fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Logic Warna Status
                     val (statusColor, containerColor) = when {
                         report.isFromLocal -> MaterialTheme.colorScheme.tertiary to MaterialTheme.colorScheme.tertiaryContainer
                         report.status.equals("active", true) -> MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.primaryContainer
-                        report.status.equals("verified", true) -> Color(0xFF10B981) to Color(0xFFD1FAE5) // Hijau
+                        report.status.equals("verified", true) -> Color(0xFF10B981) to Color(0xFFD1FAE5)
                         else -> MaterialTheme.colorScheme.error to MaterialTheme.colorScheme.errorContainer
                     }
 
@@ -302,7 +287,6 @@ fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
                 Text(report.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Akurasi Bar
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LinearProgressIndicator(
                         progress = report.confidence,

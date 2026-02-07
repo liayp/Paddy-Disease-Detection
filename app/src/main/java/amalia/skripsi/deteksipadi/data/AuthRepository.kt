@@ -20,7 +20,7 @@ import kotlinx.serialization.json.put
 import javax.inject.Inject
 
 class AuthRepository @Inject constructor(
-    @ApplicationContext private val context: Context //
+    @ApplicationContext private val context: Context
 ) {
     // Ganti dengan Web Client ID dari Google Cloud Console Anda
     private val WEB_CLIENT_ID = "212921453036-bt21jje8evthgbo89tlgsani8a6srl92.apps.googleusercontent.com"
