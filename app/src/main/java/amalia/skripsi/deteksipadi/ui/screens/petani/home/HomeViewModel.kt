@@ -1,19 +1,12 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.home
 
 import amalia.skripsi.deteksipadi.data.AuthRepository
-import amalia.skripsi.deteksipadi.data.HazardRepository
+import amalia.skripsi.deteksipadi.data.HazardRepository // Import Repository Baru
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.supabase
-import amalia.skripsi.deteksipadi.data.fetchActiveHotspots
-import amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils
-import android.annotation.SuppressLint
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Count
 import io.github.jan.supabase.postgrest.query.Order
@@ -26,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
 
+// Model UI Universal
 data class DisplayReport(
     val label: String,
     val confidence: Float,
@@ -58,11 +52,8 @@ data class ReportHistoryDto(
 class HomeViewModel @Inject constructor(
     private val authRepo: AuthRepository,
     private val db: AppDatabase,
-    private val hazardRepo: HazardRepository,
-    @ApplicationContext private val context: Context
+    private val hazardRepo: HazardRepository // <--- Inject HazardRepository
 ) : ViewModel() {
-
-    private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
 
     val isGeofenceDanger = hazardRepo.isDanger.stateIn(
         scope = viewModelScope,
@@ -81,47 +72,43 @@ class HomeViewModel @Inject constructor(
 
     init {
         loadData()
-        startSelfLocationTracking()
+        viewModelScope.launch {
+            hazardRepo.isDanger.collect { isDangerStatus ->
+                _uiState.value = _uiState.value.copy(isGeofenceDanger = isDangerStatus)
+            }
+        }
     }
 
     fun refreshData() {
         loadData()
-        startSelfLocationTracking()
     }
 
-    @SuppressLint("MissingPermission")
-    private fun startSelfLocationTracking() {
+    // Fungsi Pantau Realtime dari Service
+    private fun observeHazardStatus() {
         viewModelScope.launch {
-            try {
-                val hotspots = fetchActiveHotspots()
-                fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                    .addOnSuccessListener { location ->
-                        if (location != null && hotspots.isNotEmpty()) {
-                            var minDistance = Double.MAX_VALUE
-                            hotspots.forEach { spot ->
-                                val dist = LocationUtils.calculateDistance(
-                                    location.latitude, location.longitude,
-                                    spot.lat, spot.lon
-                                )
-                                if (dist < minDistance) minDistance = dist
-                            }
-                            val danger = minDistance <= 300.0
-                            hazardRepo.setDangerStatus(danger, minDistance)
-                        }
-                    }
-            } catch (_: Exception) {}
+            hazardRepo.isDanger.collect { isDanger ->
+                _uiState.value = _uiState.value.copy(isGeofenceDanger = isDanger)
+            }
+        }
+        viewModelScope.launch {
+            hazardRepo.currentDistance.collect { distance ->
+                _uiState.value = _uiState.value.copy(distanceToHama = distance)
+            }
         }
     }
 
     private fun loadData() {
         viewModelScope.launch {
+            // 1. Profil
             val profile = authRepo.getUserProfile()
             _uiState.value = _uiState.value.copy(userName = profile?.full_name ?: "Petani")
 
+            // 2. Statistik Pending (Dari Room)
             val localReports = db.pendingReportDao().getAllReports()
             val pendingCount = localReports.size
             _uiState.value = _uiState.value.copy(pendingReports = pendingCount)
 
+            // 3. Statistik Total (Supabase)
             try {
                 val count = supabase.from("reports").select(columns = Columns.list("id")) {
                     count(Count.EXACT)
@@ -131,8 +118,11 @@ class HomeViewModel @Inject constructor(
                 if (count != null) {
                     _uiState.value = _uiState.value.copy(totalReports = count.toInt())
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                // Offline
+            }
 
+            // 4. Logic Cascading Laporan Terakhir
             if (localReports.isNotEmpty()) {
                 val latestLocal = localReports.last()
                 val display = DisplayReport(
