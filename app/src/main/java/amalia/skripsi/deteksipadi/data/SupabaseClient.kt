@@ -7,12 +7,10 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
 import kotlinx.serialization.Serializable
-import org.slf4j.helpers.Util.report
 
 val supabase = createSupabaseClient(
     supabaseUrl = "https://gyhvaxwqjubznzivmyqo.supabase.co",
@@ -24,14 +22,20 @@ val supabase = createSupabaseClient(
     install(Realtime)
 }
 
-
 @Serializable
 data class HotspotDto(
     val id: String,
+    val image_url: String,
+    val ai_label: String,
+    val confidence: Double,
+    val status: String,
+    val created_at: String,
+    val kecamatan: String,
+    val kelurahan: String,
+    val address_detail: String,
     val lat: Double,
     val lon: Double,
-    val ai_label: String,
-    val image_url: String
+    val user_id: String? = null
 )
 
 @Serializable

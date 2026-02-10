@@ -24,7 +24,12 @@ data class RemoteReport(
     val status: String,
     val created_at: String,
     val image_url: String,
-    val user_id: String
+    val user_id: String,
+    val kecamatan: String? = null,
+    val kelurahan: String? = null,
+    val address_detail: String? = null,
+    val lat: Double = 0.0,
+    val lon: Double = 0.0
 )
 
 data class HistoryUiState(

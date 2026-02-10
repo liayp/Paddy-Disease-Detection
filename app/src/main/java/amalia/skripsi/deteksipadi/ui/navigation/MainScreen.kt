@@ -10,6 +10,7 @@ import amalia.skripsi.deteksipadi.ui.screens.petani.history.HistoryScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.history.HistoryViewModel
 import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
+import amalia.skripsi.deteksipadi.ui.screens.petani.report.PetaniReportDetailScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.ReportDetailScreen
 import androidx.compose.foundation.background
@@ -70,7 +71,6 @@ fun MainScreen(
                                 .size(56.dp)
                                 .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
                                 .clickable {
-                                    // Navigasi Scanner (LaunchSingleTop saja, jangan PopUpTo Home agar bisa Back)
                                     navController.navigate(SCANNER_ROUTE) {
                                         launchSingleTop = true
                                     }
@@ -102,7 +102,7 @@ fun MainScreen(
             startDestination = BottomNavItem.Home.route,
             modifier = contentModifier
         ) {
-            // --- ROUTE UMUM ---
+            // --- ROUTE UMUM (Bisa diakses POPT & Petani) ---
             composable(BottomNavItem.Home.route) {
                 HomeScreen(navController = navController)
             }
@@ -125,6 +125,14 @@ fun MainScreen(
                 )
             }
 
+            // Route Detail Umum (Digunakan oleh Peta atau List POPT)
+            composable("report_detail") {
+                ReportDetailScreen(
+                    navController = navController,
+                    reportData = selectedReport
+                )
+            }
+
             // --- ROUTE KHUSUS PETANI ---
             if (userRole == "petani") {
                 composable(SCANNER_ROUTE) {
@@ -133,7 +141,22 @@ fun MainScreen(
                 }
                 composable(BottomNavItem.History.route) {
                     val historyViewModel: HistoryViewModel = hiltViewModel()
-                    HistoryScreen(historyViewModel = historyViewModel, navController = navController)
+                    HistoryScreen(
+                        navController = navController,
+                        historyViewModel = historyViewModel,
+                        onNavigateToDetail = { report ->
+                            println("DEBUG: Kelurahan: ${report.kelurahan}, Kecamatan: ${report.kecamatan}") // Tambahkan ini
+                            selectedReport = report
+                            navController.navigate("petani_report_detail")
+                        }
+                    )
+                }
+                // PINDAHKAN KESINI: Agar Petani bisa membuka detail laporannya sendiri
+                composable("petani_report_detail") {
+                    PetaniReportDetailScreen(
+                        navController = navController,
+                        reportData = selectedReport
+                    )
                 }
             }
 
@@ -146,13 +169,6 @@ fun MainScreen(
                             selectedReport = report
                             navController.navigate("report_detail")
                         }
-                    )
-                }
-
-                composable("report_detail") {
-                    ReportDetailScreen(
-                        navController = navController,
-                        reportData = selectedReport
                     )
                 }
             }

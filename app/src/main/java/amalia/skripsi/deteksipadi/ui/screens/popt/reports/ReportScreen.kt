@@ -9,7 +9,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,39 +32,43 @@ fun PoptReportsScreen(
     navController: NavController,
     onReportClick: (HotspotDto) -> Unit
 ) {
-    val context = LocalContext.current
     var reports by remember { mutableStateOf<List<HotspotDto>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        // Nanti bisa difilter berdasarkan Kecamatan POPT disini
-        reports = fetchActiveHotspots()
+        // Filter: Hanya tampilkan tugas yang statusnya 'pending'
+        reports = fetchActiveHotspots().filter { it.status.lowercase() == "pending" }
         isLoading = false
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(Color(0xFFF5F5F5)).padding(16.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
         Text(
-            text = "Laporan Masuk",
+            text = "Tugas Verifikasi",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "Daftar deteksi hama yang perlu diverifikasi",
+            text = "Daftar laporan masuk yang memerlukan validasi lapangan",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.Gray
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         if (isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else if (reports.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.History, null, modifier = Modifier.size(64.dp), tint = Color.LightGray)
+                    Text("Semua tugas selesai", color = Color.Gray)
+                }
+            }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(reports) { report ->
-                    ReportItemCard(report = report, onClick = { onReportClick(report) })
+                    PoptReportItemCard(report = report, onClick = { onReportClick(report) })
                 }
             }
         }
@@ -70,55 +76,40 @@ fun PoptReportsScreen(
 }
 
 @Composable
-fun ReportItemCard(report: HotspotDto, onClick: () -> Unit) {
+fun PoptReportItemCard(report: HotspotDto, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            // Gambar Thumbnail
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current).data(report.image_url).crossfade(true).build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
+                modifier = Modifier.size(90.dp).clip(RoundedCornerShape(12.dp))
             )
 
             Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                // Badge Status (Mockup)
-                Surface(
-                    color = Color(0xFFFFEBEE),
-                    shape = RoundedCornerShape(4.dp),
-                    modifier = Modifier.padding(bottom = 4.dp)
-                ) {
-                    Text(
-                        text = "BUTUH PENANGANAN",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Red,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-
+                val acc = (report.confidence * 100).toInt()
                 Text(
-                    text = report.ai_label,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Akurasi AI: $acc%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if(acc > 70) Color(0xFF2E7D32) else Color.Red,
                     fontWeight = FontWeight.Bold
                 )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(12.dp), tint = Color.Gray)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = "Lat: ${report.lat.toString().take(6)}...", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                }
+                Text(text = report.ai_label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Wilayah: Kec. ${report.kecamatan ?: "-"}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Text(
+                    text = report.created_at.take(10),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
             }
-
-            Icon(Icons.Default.ChevronRight, null, tint = Color.Gray)
+            Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
         }
     }
 }

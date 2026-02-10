@@ -33,202 +33,92 @@ import coil.request.ImageRequest
 import androidx.core.net.toUri
 
 @OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun ReportDetailScreen(
     navController: NavController,
-    // Kita passing objek HotspotDto langsung biar cepat (bisa juga by ID fetch ulang)
     reportData: HotspotDto?
 ) {
     val context = LocalContext.current
+    if (reportData == null) return
 
-    if (reportData == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Data tidak ditemukan") }
-        return
-    }
-
-    Scaffold(
-        floatingActionButton = {
-            // Tombol Aksi Utama: Buka Google Maps
-            ExtendedFloatingActionButton(
-                onClick = {
-                    val gmmIntentUri =
-                        "google.navigation:q=${reportData.lat},${reportData.lon}".toUri()
-                    val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
-                    mapIntent.setPackage("com.google.android.apps.maps")
-                    context.startActivity(mapIntent)
-                },
-                icon = { Icon(Icons.Default.Map, null) },
-                text = { Text("Navigasi ke Lokasi") },
-                containerColor = MaterialTheme.colorScheme.primary
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(350.dp)
-            ) {
+    Scaffold { padding ->
+        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(padding)) {
+            Box(modifier = Modifier.fillMaxWidth().height(350.dp)) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(reportData.image_url)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "Bukti Foto",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    model = ImageRequest.Builder(context).data(reportData.image_url).crossfade(true).build(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-
-                // Gradient Gelap di Bawah Gambar (Agar teks terbaca)
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
-                                startY = 100f
-                            )
-                        )
-                )
-
-                // Tombol Back Floating
+                Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)))))
                 IconButton(
                     onClick = { navController.popBackStack() },
-                    modifier = Modifier
-                        .padding(top = 48.dp, start = 16.dp)
-                        .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                ) {
-                    Icon(Icons.Default.ArrowBack, null, tint = Color.White)
-                }
+                    modifier = Modifier.padding(top = 40.dp, start = 16.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) { Icon(Icons.Default.ArrowBack, null, tint = Color.White) }
 
-                // Judul Hama di atas Gambar
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(24.dp)
-                ) {
+                Column(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp)) {
+                    val acc = (reportData.confidence * 100).toInt()
                     AssistChip(
                         onClick = {},
-                        label = { Text("CONFIDENCE SCORE TINGGI", color = Color.White) },
-                        colors = AssistChipDefaults.assistChipColors(containerColor = Color.Red.copy(alpha = 0.8f)),
-                        border = null
+                        label = { Text("AKURASI AI: $acc%", color = Color.White) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = if(acc > 70) Color(0xFF2E7D32) else Color.Red)
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = reportData.ai_label,
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Terdeteksi di area persawahan warga",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.White.copy(alpha = 0.8f)
-                    )
+                    Text(text = reportData.ai_label, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
 
-            // --- KONTEN DETAIL (Card Style) ---
             Column(
-                modifier = Modifier
-                    .offset(y = (-20).dp) // Efek menumpuk sedikit ke atas
-                    .fillMaxWidth()
+                modifier = Modifier.offset(y = (-20).dp).fillMaxWidth()
                     .background(MaterialTheme.colorScheme.background, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
                     .padding(24.dp)
             ) {
-
-                // Indikator Dekorasi (Garis kecil di tengah)
-                Box(
-                    modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
-                        .background(Color.LightGray, CircleShape)
-                        .align(Alignment.CenterHorizontally)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    text = "Detail Laporan",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
+                Text("Validasi Laporan Lapangan", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Informasi dalam Grid/List
-                DetailItemRow(
-                    icon = Icons.Default.Warning,
-                    label = "Jenis Hama",
-                    value = reportData.ai_label,
-                    color = Color(0xFFD32F2F)
-                )
-
+                DetailItemRow(Icons.Default.Warning, "Hama Terdeteksi", reportData.ai_label, Color(0xFFD32F2F))
                 Spacer(modifier = Modifier.height(12.dp))
-
-                DetailItemRow(
-                    icon = Icons.Default.LocationOn,
-                    label = "Koordinat Lokasi",
-                    value = "${reportData.lat}, ${reportData.lon}",
-                    color = Color(0xFF1976D2)
-                )
-
+                DetailItemRow(Icons.Default.LocationOn, "Kecamatan/Kelurahan", "Kec. ${reportData.kecamatan}, Kel. ${reportData.kelurahan}", Color(0xFF1976D2))
                 Spacer(modifier = Modifier.height(12.dp))
-
-                // Bagian ini nanti bisa diambil dari database jika reportData punya field 'district' atau 'reporter_name'
-                DetailItemRow(
-                    icon = Icons.Default.Person,
-                    label = "Pelapor (Petani)",
-                    value = "Mitra Tani (ID: ${reportData.id.take(5)}...)",
-                    color = Color(0xFF388E3C)
-                )
-
+                DetailItemRow(Icons.Default.Person, "ID Pelapor (User)", reportData.user_id?.take(8) ?: "-", Color(0xFF388E3C))
                 Spacer(modifier = Modifier.height(12.dp))
+                DetailItemRow(Icons.Default.CalendarToday, "Waktu Lapor", reportData.created_at.replace("T", " ").take(16), Color(0xFFF57C00))
 
-                DetailItemRow(
-                    icon = Icons.Default.CalendarToday,
-                    label = "Waktu Laporan",
-                    value = "Baru Saja (Realtime)", // Nanti ambil created_at dari DTO
-                    color = Color(0xFFF57C00)
-                )
+                Spacer(modifier = Modifier.height(30.dp))
 
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // --- AREA TINDAKAN POPT ---
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Instruksi Penanganan:",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "1. Lakukan verifikasi visual di lapangan.\n2. Jika valid, koordinasikan penyemprotan.\n3. Tandai status 'Selesai' jika hama teratasi.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        Text("Tindakan Petugas:", fontWeight = FontWeight.Bold)
+                        Text("Verifikasi apakah temuan di foto sesuai dengan kondisi nyata di lapangan.", style = MaterialTheme.typography.bodySmall)
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
-                            onClick = { /* TODO: Update status report jadi 'handled' di database */ },
+                            onClick = { /* Implementasi Update Supabase Status */ },
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(Icons.Default.CheckCircle, null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Verifikasi & Tandai Selesai")
+                            Spacer(Modifier.width(8.dp))
+                            Text("Verifikasi & Selesaikan")
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(80.dp)) // Ruang untuk FAB
+                Spacer(modifier = Modifier.height(20.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        val gmmIntentUri = "google.navigation:q=${reportData.lat},${reportData.lon}".toUri()
+                        val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply { setPackage("com.google.android.apps.maps") }
+                        context.startActivity(mapIntent)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Map, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Navigasi ke Sawah")
+                }
+                Spacer(modifier = Modifier.height(100.dp))
             }
         }
     }

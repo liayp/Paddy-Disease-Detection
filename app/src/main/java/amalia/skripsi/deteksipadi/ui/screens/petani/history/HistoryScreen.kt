@@ -1,15 +1,21 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.history
 
+import amalia.skripsi.deteksipadi.data.HotspotDto
 import amalia.skripsi.deteksipadi.data.local.PendingReport
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,37 +29,78 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HistoryScreen(
     navController: NavController,
-    historyViewModel: HistoryViewModel
+    historyViewModel: HistoryViewModel,
+    onNavigateToDetail: (HotspotDto) -> Unit
 ) {
     val state by historyViewModel.uiState.collectAsState()
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
     val tabs = listOf("Selesai", "Proses", "Tertunda")
 
+    val pagerState = rememberPagerState { tabs.size }
+    val scope = rememberCoroutineScope()
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.primary,
         topBar = {
-            Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-                CenterAlignedTopAppBar(
-                    title = { Text("Riwayat Laporan", fontWeight = FontWeight.Bold) }
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        "Riwayat Laporan",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                windowInsets = WindowInsets(0),
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
                 )
-                SecondaryTabRow(
-                    selectedTabIndex = selectedTabIndex,
-                    containerColor = MaterialTheme.colorScheme.surface
+            )
+        }
+    ) { padding ->
+
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            color = MaterialTheme.colorScheme.background,
+            tonalElevation = 2.dp
+        ) {
+
+            Column {
+                TabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = Color.Transparent,
+                    divider = {},
+                    indicator = { tabPositions ->
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(
+                                tabPositions[pagerState.currentPage]
+                            ),
+                            height = 3.dp
+                        )
+                    }
                 ) {
                     tabs.forEachIndexed { index, title ->
-                        val count = when(index) {
+                        val count = when (index) {
                             0 -> state.finishedList.size
                             1 -> state.processList.size
                             else -> state.pendingList.size
                         }
+
                         Tab(
-                            selected = selectedTabIndex == index,
-                            onClick = { selectedTabIndex = index },
+                            selected = pagerState.currentPage == index,
+                            onClick = {
+                                scope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
+                            },
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(title, fontSize = 13.sp)
@@ -66,28 +113,61 @@ fun HistoryScreen(
                         )
                     }
                 }
-            }
-        }
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            if (state.isLoading) {
-                CircularProgressIndicator(Modifier.align(Alignment.Center))
-            } else {
-                val currentItems = when (selectedTabIndex) {
-                    0 -> state.finishedList
-                    1 -> state.processList
-                    else -> state.pendingList
-                }
 
-                if (currentItems.isEmpty()) {
-                    EmptyHistoryState()
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(currentItems) { item ->
-                            HistoryReportCard(item)
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+
+                    val currentItems = when (page) {
+                        0 -> state.finishedList
+                        1 -> state.processList
+                        else -> state.pendingList
+                    }
+
+                    when {
+                        state.isLoading -> {
+                            Box(
+                                Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
+
+                        currentItems.isEmpty() -> {
+                            EmptyHistoryState()
+                        }
+
+                        else -> {
+                            LazyColumn(
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(currentItems) { item ->
+                                    HistoryReportCard(
+                                        item = item,
+                                        onClick = {
+                                            if (item is RemoteReport) {
+                                                val hotspot = HotspotDto(
+                                                    id = item.id,
+                                                    ai_label = item.ai_label,
+                                                    confidence = item.confidence.toDouble(),
+                                                    status = item.status,
+                                                    lat = 0.0,
+                                                    lon = 0.0,
+                                                    image_url = item.image_url,
+                                                    created_at = item.created_at,
+                                                    kecamatan = item.kecamatan ?: "-",
+                                                    kelurahan = item.kelurahan ?: "-",
+                                                    address_detail = item.address_detail ?: "Detail tidak tersedia"
+                                                )
+                                                onNavigateToDetail(hotspot)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -96,8 +176,12 @@ fun HistoryScreen(
     }
 }
 
+
 @Composable
-fun HistoryReportCard(item: Any) {
+fun HistoryReportCard(
+    item: Any,
+    onClick: () -> Unit
+) {
     val context = LocalContext.current
 
     val imageUrl: Any
@@ -112,7 +196,7 @@ fun HistoryReportCard(item: Any) {
         label = item.ai_label
         confidence = item.confidence
         status = item.status
-        time = item.created_at.take(10)
+        time = item.created_at.replace("T", " ").take(16)
         isFromLocal = false
     } else {
         val pending = item as PendingReport
@@ -126,30 +210,45 @@ fun HistoryReportCard(item: Any) {
 
     val (statusColor, containerColor) = when {
         isFromLocal -> {
-            MaterialTheme.colorScheme.tertiary to MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.2f)
+            MaterialTheme.colorScheme.tertiary to
+                    MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.2f)
         }
+
         status.lowercase() == "pending" -> {
-            // Biru untuk sedang diproses
-            MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
+            MaterialTheme.colorScheme.primary to
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
         }
+
         status.lowercase() == "verified" -> {
-            // Hijau untuk selesai
-            MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            val green = Color(0xFF2E7D32)
+            green to green.copy(alpha = 0.1f)
         }
+
         else -> {
-            // Merah untuk ditolak/error
-            MaterialTheme.colorScheme.error to MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+            MaterialTheme.colorScheme.error to
+                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
         }
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.size(70.dp)) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.size(70.dp)
+            ) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(imageUrl)
@@ -161,39 +260,66 @@ fun HistoryReportCard(item: Any) {
                 )
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
+
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(color = containerColor, shape = RoundedCornerShape(8.dp)) {
+                    Surface(
+                        color = containerColor,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
                         Text(
-                            text = if(isFromLocal) "TERTUNDA" else status.uppercase(),
+                            text = if (isFromLocal) "TERTUNDA" else status.uppercase(),
                             style = MaterialTheme.typography.labelSmall,
                             color = statusColor,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(
+                                horizontal = 8.dp,
+                                vertical = 4.dp
+                            )
                         )
                     }
-                    Text(time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    Text(
+                        time,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(Modifier.height(4.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LinearProgressIndicator(
                         progress = confidence,
-                        modifier = Modifier.width(80.dp).height(6.dp).clip(CircleShape),
+                        modifier = Modifier
+                            .width(80.dp)
+                            .height(6.dp)
+                            .clip(CircleShape),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.primaryContainer
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("${(confidence * 100).toInt()}% Akurat", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Text(
+                        "${(confidence * 100).toInt()}% Akurat",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
             }
         }
@@ -203,15 +329,39 @@ fun HistoryReportCard(item: Any) {
 @Composable
 fun EmptyHistoryState() {
     Column(
-        Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape).padding(24.dp)) {
-            Icon(Icons.Default.History, null, Modifier.size(48.dp), Color.Gray)
+        Box(
+            Modifier
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    CircleShape
+                )
+                .padding(24.dp)
+        ) {
+            Icon(
+                Icons.Default.History,
+                null,
+                Modifier.size(48.dp),
+                Color.Gray
+            )
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Belum ada riwayat", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-        Text("Semua laporan Anda akan tersimpan di sini", color = Color.Gray, fontSize = 14.sp)
+
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            "Belum ada riwayat",
+            fontWeight = FontWeight.Bold
+        )
+
+        Text(
+            "Semua laporan Anda akan tersimpan di sini",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
     }
 }
