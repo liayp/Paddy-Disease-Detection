@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.navigation
 
 import amalia.skripsi.deteksipadi.data.HotspotDto
+import amalia.skripsi.deteksipadi.ui.screens.general.peta.FilterPetaScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.PetaScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.PetaViewModel
 import amalia.skripsi.deteksipadi.ui.screens.general.profile.ProfileScreen
@@ -35,7 +36,7 @@ const val SCANNER_ROUTE = "scanner"
 
 @Composable
 fun MainScreen(
-    userRole: String, // Menerima Role
+    userRole: String,
     onLogout: () -> Unit
 ) {
     val navController = rememberNavController()
@@ -44,12 +45,13 @@ fun MainScreen(
 
     var selectedReport by remember { mutableStateOf<HotspotDto?>(null) }
 
-    // Tentukan menu berdasarkan Role
+    // Inisialisasi PetaViewModel di sini agar menjadi Shared ViewModel bagi Peta & Filter
+    val petaViewModel: PetaViewModel = hiltViewModel()
+
     val bottomBarItems = remember(userRole) {
         if (userRole == "popt") BottomNavItem.poptRoutes() else BottomNavItem.petaniRoutes()
     }
 
-    // Cek apakah route sekarang termasuk di bottom bar
     val isMainTab = currentRoute in BottomNavItem.allRoutes()
 
     Scaffold(
@@ -60,10 +62,8 @@ fun MainScreen(
                         modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.BottomCenter
                     ) {
-                        // Bottom Bar
                         BottomNavigationBar(navController = navController, items = bottomBarItems)
 
-                        // Tombol Scanner Tengah (Floating)
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
@@ -91,7 +91,7 @@ fun MainScreen(
             }
         },
     ) { innerPadding ->
-        val contentModifier = if (currentRoute == SCANNER_ROUTE) {
+        val contentModifier = if (currentRoute == SCANNER_ROUTE || currentRoute == "filter_screen") {
             Modifier
         } else {
             Modifier.padding(innerPadding)
@@ -102,7 +102,6 @@ fun MainScreen(
             startDestination = BottomNavItem.Home.route,
             modifier = contentModifier
         ) {
-            // --- ROUTE UMUM (Bisa diakses POPT & Petani) ---
             composable(BottomNavItem.Home.route) {
                 HomeScreen(navController = navController)
             }
@@ -113,7 +112,6 @@ fun MainScreen(
             }
 
             composable(BottomNavItem.Peta.route) {
-                val petaViewModel: PetaViewModel = hiltViewModel()
                 PetaScreen(
                     navController = navController,
                     petaViewModel = petaViewModel,
@@ -125,7 +123,14 @@ fun MainScreen(
                 )
             }
 
-            // Route Detail Umum (Digunakan oleh Peta atau List POPT)
+            // Route Halaman Filter (Brimo Style)
+            composable("filter_screen") {
+                FilterPetaScreen(
+                    navController = navController,
+                    viewModel = petaViewModel
+                )
+            }
+
             composable("report_detail") {
                 ReportDetailScreen(
                     navController = navController,
@@ -133,7 +138,6 @@ fun MainScreen(
                 )
             }
 
-            // --- ROUTE KHUSUS PETANI ---
             if (userRole == "petani") {
                 composable(SCANNER_ROUTE) {
                     val homeViewModel: HomeViewModel = hiltViewModel()
@@ -145,13 +149,11 @@ fun MainScreen(
                         navController = navController,
                         historyViewModel = historyViewModel,
                         onNavigateToDetail = { report ->
-                            println("DEBUG: Kelurahan: ${report.kelurahan}, Kecamatan: ${report.kecamatan}") // Tambahkan ini
                             selectedReport = report
                             navController.navigate("petani_report_detail")
                         }
                     )
                 }
-                // PINDAHKAN KESINI: Agar Petani bisa membuka detail laporannya sendiri
                 composable("petani_report_detail") {
                     PetaniReportDetailScreen(
                         navController = navController,
@@ -160,7 +162,6 @@ fun MainScreen(
                 }
             }
 
-            // --- ROUTE KHUSUS POPT ---
             if (userRole == "popt") {
                 composable(BottomNavItem.Reports.route) {
                     PoptReportsScreen(

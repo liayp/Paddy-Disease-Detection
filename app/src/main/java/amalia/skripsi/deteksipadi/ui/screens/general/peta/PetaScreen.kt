@@ -55,29 +55,27 @@ fun PetaScreen(
 ) {
     val context = LocalContext.current
 
-    // --- Data State ---
-    var hotspots by remember { mutableStateOf<List<HotspotDto>>(emptyList()) }
+    // --- State Lokasi & Permission ---
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
     var hasLocationPermission by remember { mutableStateOf(false) }
-
-    // --- UI State ---
     var selectedHotspot by remember { mutableStateOf<HotspotDto?>(null) }
     var isProtectionActive by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var isInDanger by remember { mutableStateOf(false) } // Indikator Bahaya
+    var isInDanger by remember { mutableStateOf(false) }
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(0.5333, 123.0667), 10f)
     }
 
-    // Permission Launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted -> hasLocationPermission = isGranted }
 
-    // 1. Fetch Data Awal
+    // 1. Ambil data awal dan simpan ke ViewModel
     LaunchedEffect(Unit) {
-        hotspots = fetchActiveHotspots()
+        val list = fetchActiveHotspots()
+        petaViewModel.setInitialData(list)
+
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             hasLocationPermission = true
         } else {
@@ -85,8 +83,8 @@ fun PetaScreen(
         }
     }
 
-    // 2. Logic Lokasi Realtime & Cek Bahaya
-    LaunchedEffect(hasLocationPermission) {
+    // 2. Monitoring Lokasi & Geofencing Bahaya
+    LaunchedEffect(hasLocationPermission, petaViewModel.filteredHotspots) {
         if (hasLocationPermission) {
             val client = LocationServices.getFusedLocationProviderClient(context)
             try {
@@ -94,31 +92,23 @@ fun PetaScreen(
                     if (loc != null) {
                         userLocation = LatLng(loc.latitude, loc.longitude)
 
-                        // Pindahkan kamera ke user saat pertama kali dapat lokasi
-                        cameraPositionState.move(CameraUpdateFactory.newLatLngZoom(userLocation!!, 14f))
-
-                        // LOGIKA GEOFENCING: Cek apakah user masuk radius 300m dari salah satu hama
-                        val dangerCheck = hotspots.any { spot ->
+                        // Cek Geofencing terhadap data yang sedang difilter
+                        isInDanger = petaViewModel.filteredHotspots.any { spot ->
                             val results = FloatArray(1)
                             Location.distanceBetween(loc.latitude, loc.longitude, spot.lat, spot.lon, results)
-                            results[0] <= 300.0 // Radius 300 meter
+                            results[0] <= 300.0
                         }
-                        isInDanger = dangerCheck
                     }
                 }
             } catch (_: Exception) {}
         }
     }
 
-    // 3. Logic Toggle Service (Notifikasi)
     fun toggleService(active: Boolean) {
         val intent = Intent(context, HazardDetectionService::class.java)
         if (active) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+            else context.startService(intent)
             isProtectionActive = true
             Toast.makeText(context, "Alarm Pantau Aktif", Toast.LENGTH_SHORT).show()
         } else {
@@ -129,7 +119,7 @@ fun PetaScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // --- LAYER 1: MAP ---
+        // --- LAYER 1: GOOGLE MAPS ---
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
@@ -137,19 +127,20 @@ fun PetaScreen(
             uiSettings = MapUiSettings(zoomControlsEnabled = false, mapToolbarEnabled = false),
             onMapClick = { selectedHotspot = null }
         ) {
-            hotspots.forEach { spot ->
+            // RENDER DATA DARI VIEWMODEL
+            petaViewModel.filteredHotspots.forEach { spot ->
                 val pos = LatLng(spot.lat, spot.lon)
 
-                // Visual Radius Merah (Geofence)
+                // 1. Circle Geofence (Radius Merah)
                 Circle(
                     center = pos,
                     radius = 300.0,
-                    fillColor = Color(0x33FF0000), // Merah Transparan
+                    fillColor = Color(0x33FF0000),
                     strokeColor = Color.Red,
                     strokeWidth = 2f
                 )
 
-                // Pin Hama
+                // 2. Marker Hama
                 Marker(
                     state = MarkerState(position = pos),
                     title = spot.ai_label,
@@ -161,110 +152,91 @@ fun PetaScreen(
             }
         }
 
-        // --- LAYER 2: HEADER UI (Status & Settings) ---
+        // --- LAYER 2: HEADER & FLOATING BUTTONS ---
         if (hasLocationPermission) {
             // A. Status Pill (Aman/Bahaya)
             StatusPill(
                 isInDanger = isInDanger,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 48.dp)
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 48.dp)
             )
 
-            // B. Tombol Settings (Untuk Alarm)
+            // B. Tombol Filter (Brimo Style Trigger)
+            FloatingActionButton(
+                onClick = { navController.navigate("filter_screen") },
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 16.dp),
+                containerColor = Color.White,
+                contentColor = Color(0xFF0078D4)
+            ) {
+                Icon(Icons.Default.FilterList, "Filter")
+            }
+
+            // C. Tombol Notifikasi Settings
             SmallFloatingActionButton(
-                onClick = { showSettingsDialog = true }, // <--- DIALOG MUNCUL DISINI
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 48.dp, end = 16.dp),
+                onClick = { showSettingsDialog = true },
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 48.dp, end = 16.dp),
                 containerColor = Color.White,
                 shape = CircleShape
             ) {
                 Box {
                     Icon(Icons.Default.Notifications, "Settings")
-                    // Dot hijau kalau service aktif
                     if (isProtectionActive) {
-                        Box(
-                            Modifier
-                                .size(10.dp)
-                                .background(Color.Green, CircleShape)
-                                .align(Alignment.TopEnd)
-                        )
+                        Box(Modifier.size(10.dp).background(Color.Green, CircleShape).align(Alignment.TopEnd))
                     }
                 }
             }
         }
 
-        // --- LAYER 3: FLOATING TOOLTIP CARD ---
+        // --- LAYER 3: TOOLTIP DETAIL CARD ---
         AnimatedVisibility(
             visible = selectedHotspot != null,
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 100.dp, start = 16.dp, end = 16.dp)
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp, start = 16.dp, end = 16.dp)
         ) {
             selectedHotspot?.let { spot ->
-                val distanceText = remember(userLocation, spot) {
-                    if (userLocation == null) "Menghitung..."
-                    else calculateDistanceString(userLocation!!, LatLng(spot.lat, spot.lon))
-                }
+                val distanceText = if (userLocation == null) "Menghitung..."
+                else calculateDistanceString(userLocation!!, LatLng(spot.lat, spot.lon))
 
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    elevation = CardDefaults.cardElevation(8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { if (userRole == "popt") onReportClick(spot) }
+                    modifier = Modifier.fillMaxWidth().clickable { if (userRole == "popt") onReportClick(spot) }
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         AsyncImage(
                             model = ImageRequest.Builder(context).data(spot.image_url).crossfade(true).build(),
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(60.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.LightGray)
+                            modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)).background(Color.LightGray)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(text = spot.ai_label, fontWeight = FontWeight.Bold)
                             Text(text = distanceText, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                         }
-                        if (userRole == "popt") {
-                            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary)
-                        }
+                        if (userRole == "popt") Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
         }
 
-        // --- DIALOG SETTINGS ---
+        // --- SETTINGS DIALOG ---
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
                 title = { Text("Notifikasi Peringatan") },
                 text = {
                     Column {
-                        Text("Nyalakan 'Mode Pantau' agar HP Anda berbunyi otomatis jika memasuki zona merah (radius 300m dari hama), meskipun layar mati.")
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Aktifkan mode pantau untuk peringatan suara saat mendekati zona merah.")
+                        Spacer(Modifier.height(16.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (isProtectionActive) "Status: AKTIF" else "Status: MATI", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                            Switch(
-                                checked = isProtectionActive,
-                                onCheckedChange = { toggleService(it) }
-                            )
+                            Text(if (isProtectionActive) "AKTIF" else "MATI", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Switch(checked = isProtectionActive, onCheckedChange = { toggleService(it) })
                         }
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = { showSettingsDialog = false }) { Text("Tutup") }
-                }
+                confirmButton = { TextButton(onClick = { showSettingsDialog = false }) { Text("Tutup") } }
             )
         }
     }
