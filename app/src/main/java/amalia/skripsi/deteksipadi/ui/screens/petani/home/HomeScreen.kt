@@ -1,6 +1,5 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.home
 
-import amalia.skripsi.deteksipadi.R
 import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -41,6 +40,7 @@ fun HomeScreen(
     navController: NavController,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
+    // Sinkronisasi realtime dengan HazardRepository
     val isDanger by viewModel.isGeofenceDanger.collectAsStateWithLifecycle()
     val distance by viewModel.distanceToHama.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -63,6 +63,7 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Card ini sekarang akan otomatis berubah warna jika Repository mendeteksi bahaya di Peta
         HeroStatusCard(isDanger = isDanger, distance = distance)
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -143,17 +144,8 @@ fun HomeHeader(userName: String, onNotifClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text(
-                text = "Selamat pagi, 👋",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = userName,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Text(text = "Selamat pagi, 👋", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(text = userName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
         }
         IconButton(
             onClick = onNotifClick,
@@ -187,12 +179,7 @@ fun HeroStatusCard(isDanger: Boolean, distance: Double) {
     )
 
     Card(shape = RoundedCornerShape(24.dp), elevation = CardDefaults.cardElevation(4.dp)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Brush.linearGradient(gradientColors))
-                .padding(24.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxWidth().background(Brush.linearGradient(gradientColors)).padding(24.dp)) {
             Box(modifier = Modifier.align(Alignment.TopEnd)) {
                 Box(modifier = Modifier.size(80.dp).scale(scale).border(2.dp, Color.White.copy(alpha = alpha), CircleShape))
                 Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape).align(Alignment.Center))
@@ -218,12 +205,7 @@ fun HeroStatusCard(isDanger: Boolean, distance: Double) {
 
 @Composable
 fun StatCard(icon: ImageVector, count: String, label: String, iconBgColor: Color, iconColor: Color, modifier: Modifier) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
+    Card(modifier = modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(2.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Box(modifier = Modifier.background(iconBgColor.copy(alpha = 0.2f), CircleShape).padding(10.dp)) {
                 Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
@@ -237,63 +219,30 @@ fun StatCard(icon: ImageVector, count: String, label: String, iconBgColor: Color
 
 @Composable
 fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(2.dp)) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.size(70.dp)) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(report.imageUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+                AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(report.imageUrl).crossfade(true).build(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
-
             Spacer(modifier = Modifier.width(16.dp))
-
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                     val (statusColor, containerColor) = when {
                         report.isFromLocal -> MaterialTheme.colorScheme.tertiary to MaterialTheme.colorScheme.tertiaryContainer
                         report.status.equals("active", true) -> MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.primaryContainer
                         report.status.equals("verified", true) -> Color(0xFF10B981) to Color(0xFFD1FAE5)
                         else -> MaterialTheme.colorScheme.error to MaterialTheme.colorScheme.errorContainer
                     }
-
                     Surface(color = containerColor, shape = RoundedCornerShape(8.dp)) {
-                        Text(
-                            text = if(report.isFromLocal) "MENUNGGU UPLOAD" else report.status.uppercase(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = statusColor,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                        Text(text = if(report.isFromLocal) "MENUNGGU UPLOAD" else report.status.uppercase(), style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                     }
                     Text(report.time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(report.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.height(4.dp))
-
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(
-                        progress = report.confidence,
-                        modifier = Modifier.width(80.dp).height(6.dp).clip(CircleShape),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.primaryContainer
-                    )
+                    LinearProgressIndicator(progress = report.confidence, modifier = Modifier.width(80.dp).height(6.dp).clip(CircleShape), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primaryContainer)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("${(report.confidence * 100).toInt()}% Akurat", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
@@ -304,25 +253,11 @@ fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
 
 @Composable
 fun EmptyStateCard(onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
-        Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
+    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             Icon(Icons.Default.CameraAlt, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = "Belum ada laporan. Ayo scan sekarang!",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(text = "Belum ada laporan. Ayo scan sekarang!", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

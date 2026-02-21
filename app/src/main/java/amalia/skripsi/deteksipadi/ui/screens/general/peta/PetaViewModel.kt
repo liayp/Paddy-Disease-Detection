@@ -5,34 +5,45 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import amalia.skripsi.deteksipadi.data.HotspotDto
+import amalia.skripsi.deteksipadi.data.HazardRepository
 import androidx.compose.runtime.mutableIntStateOf
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
+import dagger.hilt.android.lifecycle.HiltViewModel
 
-class PetaViewModel @Inject constructor() : ViewModel() {
-    // Sumber data asli dari server
+@HiltViewModel
+class PetaViewModel @Inject constructor(
+    private val hazardRepo: HazardRepository
+) : ViewModel() {
+
+    // Data asli dari server
     private var allHotspots = listOf<HotspotDto>()
 
-    // Data yang akan dibaca oleh Google Maps (Hasil Filter)
+    // Data hasil filter untuk Google Maps
     var filteredHotspots by mutableStateOf<List<HotspotDto>>(emptyList())
+
+    // Observasi status dari Repository (untuk digunakan di PetaScreen)
+    val isDanger = hazardRepo.isDanger
+    val currentDistance = hazardRepo.currentDistance
 
     // State Filter
     var selectedTimeRange by mutableStateOf("Semua")
     var selectedHama by mutableStateOf("Semua Hama")
     var selectedKecamatan by mutableStateOf("")
-
-    // State Tanggal
     var startDateMillis by mutableStateOf<Long?>(null)
     var endDateMillis by mutableStateOf<Long?>(null)
-
-    // State Bulan & Tahun (Untuk filter "Pilih Bulan")
     var selectedMonth by mutableIntStateOf(Calendar.getInstance().get(Calendar.MONTH))
     var selectedYear by mutableIntStateOf(Calendar.getInstance().get(Calendar.YEAR))
 
     fun setInitialData(list: List<HotspotDto>) {
         allHotspots = list
-        applyFilter() // Langsung jalankan filter saat data masuk
+        applyFilter()
+    }
+
+    // Fungsi pusat untuk update lokasi bahaya ke Repository (Sinkron ke Home)
+    fun updateHazardLocation(lat: Double, lon: Double) {
+        hazardRepo.updateLocation(lat, lon, filteredHotspots)
     }
 
     fun resetFilter() {
@@ -54,14 +65,9 @@ class PetaViewModel @Inject constructor() : ViewModel() {
         }
 
         filteredHotspots = allHotspots.filter { spot ->
-            // 1. Filter Jenis Hama
             val matchHama = selectedHama == "Semua Hama" || spot.ai_label == selectedHama
+            val matchLoc = selectedKecamatan.isEmpty() || spot.kecamatan.trim().contains(selectedKecamatan.trim(), ignoreCase = true)
 
-            // 2. Filter Kecamatan
-            val matchLoc = selectedKecamatan.isEmpty() ||
-                    (spot.kecamatan?.trim()?.contains(selectedKecamatan.trim(), ignoreCase = true) == true)
-
-            // 3. Filter Waktu
             val spotTime = try { sdf.parse(spot.created_at.take(10)) } catch (_: Exception) { null }
             val matchTime = when (selectedTimeRange) {
                 "Hari ini" -> isSameDay(spotTime, today.time)
@@ -73,29 +79,27 @@ class PetaViewModel @Inject constructor() : ViewModel() {
                         time in startDateMillis!!..endDateMillis!!
                     } else true
                 }
-                else -> true // Opsi "Semua"
+                else -> true
             }
             matchHama && matchLoc && matchTime
         }
     }
 
-    private fun isSameDay(date1: Date?, date2: Date): Boolean {
-        if (date1 == null) return false
-        val cal1 = Calendar.getInstance().apply { time = date1 }
-        val cal2 = Calendar.getInstance().apply { time = date2 }
-        return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
-                cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
+    // Helper Functions
+    private fun isSameDay(d1: Date?, d2: Date): Boolean {
+        if (d1 == null) return false
+        val c1 = Calendar.getInstance().apply { time = d1 }
+        val c2 = Calendar.getInstance().apply { time = d2 }
+        return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) && c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
     }
-
-    private fun isWithinDays(date: Date?, days: Int): Boolean {
-        if (date == null) return false
-        val limit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -days) }
-        return date.after(limit.time)
+    private fun isWithinDays(d: Date?, days: Int): Boolean {
+        if (d == null) return false
+        val lim = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -days) }
+        return d.after(lim.time)
     }
-
-    private fun isSameMonth(date: Date?, month: Int, year: Int): Boolean {
-        if (date == null) return false
-        val cal = Calendar.getInstance().apply { time = date }
-        return cal.get(Calendar.MONTH) == month && cal.get(Calendar.YEAR) == year
+    private fun isSameMonth(d: Date?, m: Int, y: Int): Boolean {
+        if (d == null) return false
+        val c = Calendar.getInstance().apply { time = d }
+        return c.get(Calendar.MONTH) == m && c.get(Calendar.YEAR) == y
     }
 }

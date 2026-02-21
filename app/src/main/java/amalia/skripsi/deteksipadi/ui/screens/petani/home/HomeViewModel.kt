@@ -1,7 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.home
 
 import amalia.skripsi.deteksipadi.data.AuthRepository
-import amalia.skripsi.deteksipadi.data.HazardRepository // Import Repository Baru
+import amalia.skripsi.deteksipadi.data.HazardRepository
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.supabase
 import androidx.lifecycle.ViewModel
@@ -19,7 +19,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
 
-// Model UI Universal
 data class DisplayReport(
     val label: String,
     val confidence: Float,
@@ -31,8 +30,6 @@ data class DisplayReport(
 
 data class HomeUiState(
     val userName: String = "Petani",
-    val isGeofenceDanger: Boolean = false,
-    val distanceToHama: Double = 0.0,
     val totalReports: Int = 0,
     val pendingReports: Int = 0,
     val reportDisplay: DisplayReport? = null,
@@ -55,6 +52,7 @@ class HomeViewModel @Inject constructor(
     private val hazardRepo: HazardRepository // <--- Inject HazardRepository
 ) : ViewModel() {
 
+    // Direct Stream dari Repository agar sinkron dengan PetaScreen
     val isGeofenceDanger = hazardRepo.isDanger.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -72,41 +70,23 @@ class HomeViewModel @Inject constructor(
 
     init {
         loadData()
-        viewModelScope.launch {
-            hazardRepo.isDanger.collect { isDangerStatus ->
-                _uiState.value = _uiState.value.copy(isGeofenceDanger = isDangerStatus)
-            }
-        }
     }
 
     fun refreshData() {
         loadData()
     }
 
-    // Fungsi Pantau Realtime dari Service
-    private fun observeHazardStatus() {
-        viewModelScope.launch {
-            hazardRepo.isDanger.collect { isDanger ->
-                _uiState.value = _uiState.value.copy(isGeofenceDanger = isDanger)
-            }
-        }
-        viewModelScope.launch {
-            hazardRepo.currentDistance.collect { distance ->
-                _uiState.value = _uiState.value.copy(distanceToHama = distance)
-            }
-        }
-    }
-
     private fun loadData() {
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+
             // 1. Profil
             val profile = authRepo.getUserProfile()
             _uiState.value = _uiState.value.copy(userName = profile?.full_name ?: "Petani")
 
-            // 2. Statistik Pending (Dari Room)
+            // 2. Statistik Pending (Room)
             val localReports = db.pendingReportDao().getAllReports()
-            val pendingCount = localReports.size
-            _uiState.value = _uiState.value.copy(pendingReports = pendingCount)
+            _uiState.value = _uiState.value.copy(pendingReports = localReports.size)
 
             // 3. Statistik Total (Supabase)
             try {
@@ -114,15 +94,12 @@ class HomeViewModel @Inject constructor(
                     count(Count.EXACT)
                     limit(0)
                 }.countOrNull()
-
                 if (count != null) {
                     _uiState.value = _uiState.value.copy(totalReports = count.toInt())
                 }
-            } catch (_: Exception) {
-                // Offline
-            }
+            } catch (_: Exception) {}
 
-            // 4. Logic Cascading Laporan Terakhir
+            // 4. Laporan Terakhir
             if (localReports.isNotEmpty()) {
                 val latestLocal = localReports.last()
                 val display = DisplayReport(
@@ -144,22 +121,22 @@ class HomeViewModel @Inject constructor(
 
                     if (result.isNotEmpty()) {
                         val remote = result[0]
-                        val display = DisplayReport(
-                            label = remote.ai_label,
-                            confidence = remote.confidence,
-                            status = remote.status,
-                            time = formatDate(remote.created_at),
-                            imageUrl = remote.image_url,
-                            isFromLocal = false
+                        _uiState.value = _uiState.value.copy(
+                            reportDisplay = DisplayReport(
+                                label = remote.ai_label,
+                                confidence = remote.confidence,
+                                status = remote.status,
+                                time = formatDate(remote.created_at),
+                                imageUrl = remote.image_url,
+                                isFromLocal = false
+                            )
                         )
-                        _uiState.value = _uiState.value.copy(reportDisplay = display)
-                    } else {
-                        _uiState.value = _uiState.value.copy(reportDisplay = null)
                     }
                 } catch (_: Exception) {
                     _uiState.value = _uiState.value.copy(reportDisplay = null)
                 }
             }
+            _uiState.value = _uiState.value.copy(isLoading = false)
         }
     }
 

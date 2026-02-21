@@ -12,11 +12,7 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -45,6 +41,7 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun PetaScreen(
@@ -54,24 +51,35 @@ fun PetaScreen(
     onReportClick: (HotspotDto) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    // --- State Lokasi & Permission ---
+    val isInDanger by petaViewModel.isDanger.collectAsState()
+
+    // --- State UI ---
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
     var hasLocationPermission by remember { mutableStateOf(false) }
     var selectedHotspot by remember { mutableStateOf<HotspotDto?>(null) }
     var isProtectionActive by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var isInDanger by remember { mutableStateOf(false) }
+
+    // Smart Follow State
+    var isAutoFollowActive by remember { mutableStateOf(true) }
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(0.5333, 123.0667), 10f)
+    }
+
+    // Deteksi interaksi manual user untuk mematikan auto-follow
+    LaunchedEffect(cameraPositionState.isMoving) {
+        if (cameraPositionState.isMoving && cameraPositionState.cameraMoveStartedReason == CameraMoveStartedReason.GESTURE) {
+            isAutoFollowActive = false
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted -> hasLocationPermission = isGranted }
 
-    // 1. Ambil data awal dan simpan ke ViewModel
     LaunchedEffect(Unit) {
         val list = fetchActiveHotspots()
         petaViewModel.setInitialData(list)
@@ -83,20 +91,27 @@ fun PetaScreen(
         }
     }
 
-    // 2. Monitoring Lokasi & Geofencing Bahaya
+    // Monitoring Lokasi (Setiap Lokasi atau Filter Berubah)
     LaunchedEffect(hasLocationPermission, petaViewModel.filteredHotspots) {
         if (hasLocationPermission) {
             val client = LocationServices.getFusedLocationProviderClient(context)
             try {
+                // Untuk hasil terbaik di produksi, gunakan requestLocationUpdates berkala
                 client.lastLocation.addOnSuccessListener { loc ->
                     if (loc != null) {
-                        userLocation = LatLng(loc.latitude, loc.longitude)
+                        val newLatLng = LatLng(loc.latitude, loc.longitude)
+                        userLocation = newLatLng
 
-                        // Cek Geofencing terhadap data yang sedang difilter
-                        isInDanger = petaViewModel.filteredHotspots.any { spot ->
-                            val results = FloatArray(1)
-                            Location.distanceBetween(loc.latitude, loc.longitude, spot.lat, spot.lon, results)
-                            results[0] <= 300.0
+                        // KIRIM DATA KE REPOSITORY (Agar Home Sinkron)
+                        petaViewModel.updateHazardLocation(loc.latitude, loc.longitude)
+
+                        // Mode Smart Follow
+                        if (isAutoFollowActive) {
+                            scope.launch {
+                                cameraPositionState.animate(
+                                    CameraUpdateFactory.newLatLngZoom(newLatLng, 16f)
+                                )
+                            }
                         }
                     }
                 }
@@ -119,19 +134,19 @@ fun PetaScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // --- LAYER 1: GOOGLE MAPS ---
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
-            uiSettings = MapUiSettings(zoomControlsEnabled = false, mapToolbarEnabled = false),
+            uiSettings = MapUiSettings(
+                zoomControlsEnabled = false,
+                mapToolbarEnabled = false,
+                myLocationButtonEnabled = false // Custom button di bawah
+            ),
             onMapClick = { selectedHotspot = null }
         ) {
-            // RENDER DATA DARI VIEWMODEL
             petaViewModel.filteredHotspots.forEach { spot ->
                 val pos = LatLng(spot.lat, spot.lon)
-
-                // 1. Circle Geofence (Radius Merah)
                 Circle(
                     center = pos,
                     radius = 300.0,
@@ -139,8 +154,6 @@ fun PetaScreen(
                     strokeColor = Color.Red,
                     strokeWidth = 2f
                 )
-
-                // 2. Marker Hama
                 Marker(
                     state = MarkerState(position = pos),
                     title = spot.ai_label,
@@ -152,41 +165,68 @@ fun PetaScreen(
             }
         }
 
-        // --- LAYER 2: HEADER & FLOATING BUTTONS ---
+
         if (hasLocationPermission) {
-            // A. Status Pill (Aman/Bahaya)
+            // Status Pill (Sinkron dengan Home)
             StatusPill(
                 isInDanger = isInDanger,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 48.dp)
             )
 
-            // B. Tombol Filter (Brimo Style Trigger)
-            FloatingActionButton(
-                onClick = { navController.navigate("filter_screen") },
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 16.dp),
-                containerColor = Color.White,
-                contentColor = Color(0xFF0078D4)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 48.dp, end = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.End
             ) {
-                Icon(Icons.Default.FilterList, "Filter")
-            }
-
-            // C. Tombol Notifikasi Settings
-            SmallFloatingActionButton(
-                onClick = { showSettingsDialog = true },
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 48.dp, end = 16.dp),
-                containerColor = Color.White,
-                shape = CircleShape
-            ) {
-                Box {
-                    Icon(Icons.Default.Notifications, "Settings")
-                    if (isProtectionActive) {
-                        Box(Modifier.size(10.dp).background(Color.Green, CircleShape).align(Alignment.TopEnd))
+                // Settings Notifikasi
+                SmallFloatingActionButton(
+                    onClick = { showSettingsDialog = true },
+                    containerColor = Color.White,
+                    shape = CircleShape
+                ) {
+                    Box {
+                        Icon(Icons.Default.Notifications, "Settings")
+                        if (isProtectionActive) {
+                            Box(Modifier.size(10.dp).background(Color.Green, CircleShape).align(Alignment.TopEnd))
+                        }
                     }
+                }
+
+                // Filter Hama
+                SmallFloatingActionButton(
+                    onClick = { navController.navigate("filter_screen") },
+                    containerColor = Color.White,
+                    contentColor = Color(0xFF0078D4)
+                ) {
+                    Icon(Icons.Default.FilterList, "Filter")
+                }
+
+                // Smart Follow Button
+                FloatingActionButton(
+                    onClick = {
+                        isAutoFollowActive = true
+                        userLocation?.let {
+                            scope.launch {
+                                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(it, 16f))
+                            }
+                        }
+                    },
+                    containerColor = if (isAutoFollowActive) Color(0xFF0078D4) else Color.White,
+                    contentColor = if (isAutoFollowActive) Color.White else Color.Black,
+                    shape = CircleShape,
+                    modifier = Modifier.size(56.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isAutoFollowActive) Icons.Default.MyLocation else Icons.Default.LocationSearching,
+                        contentDescription = "Center Location"
+                    )
                 }
             }
         }
 
-        // --- LAYER 3: TOOLTIP DETAIL CARD ---
+        // Tooltip Detail Card (Muncul saat marker diklik)
         AnimatedVisibility(
             visible = selectedHotspot != null,
             enter = slideInVertically { it } + fadeIn(),
@@ -221,7 +261,7 @@ fun PetaScreen(
             }
         }
 
-        // --- SETTINGS DIALOG ---
+        // Dialog Settings Notifikasi
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
@@ -231,7 +271,7 @@ fun PetaScreen(
                         Text("Aktifkan mode pantau untuk peringatan suara saat mendekati zona merah.")
                         Spacer(Modifier.height(16.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (isProtectionActive) "AKTIF" else "MATI", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text(if (isProtectionActive) "Status: AKTIF" else "Status: MATI", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                             Switch(checked = isProtectionActive, onCheckedChange = { toggleService(it) })
                         }
                     }
@@ -242,7 +282,6 @@ fun PetaScreen(
     }
 }
 
-// --- KOMPONEN STATUS (AMAN/BAHAYA) ---
 @Composable
 fun StatusPill(isInDanger: Boolean, modifier: Modifier = Modifier) {
     Surface(
@@ -272,20 +311,11 @@ fun StatusPill(isInDanger: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
-// --- UTILITAS HITUNG JARAK ---
 @SuppressLint("DefaultLocale")
 fun calculateDistanceString(userLoc: LatLng, spotLoc: LatLng): String {
     val results = FloatArray(1)
-    Location.distanceBetween(
-        userLoc.latitude, userLoc.longitude,
-        spotLoc.latitude, spotLoc.longitude,
-        results
-    )
+    Location.distanceBetween(userLoc.latitude, userLoc.longitude, spotLoc.latitude, spotLoc.longitude, results)
     val distanceMeters = results[0]
-
-    return if (distanceMeters < 1000) {
-        "${distanceMeters.toInt()} m dari Anda"
-    } else {
-        String.format("%.1f km dari Anda", distanceMeters / 1000)
-    }
+    return if (distanceMeters < 1000) "${distanceMeters.toInt()} m dari Anda"
+    else String.format("%.1f km dari Anda", distanceMeters / 1000)
 }
