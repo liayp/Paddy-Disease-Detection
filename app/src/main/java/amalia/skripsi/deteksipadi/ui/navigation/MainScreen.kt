@@ -13,7 +13,9 @@ import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
 import amalia.skripsi.deteksipadi.ui.screens.petani.report.PetaniReportDetailScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
+import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsViewModel
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.ReportDetailScreen
+import amalia.skripsi.deteksipadi.ui.screens.popt.reports.ReportPreviewScreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -45,11 +47,14 @@ fun MainScreen(
 
     var selectedReport by remember { mutableStateOf<HotspotDto?>(null) }
 
-    // Inisialisasi PetaViewModel di sini agar menjadi Shared ViewModel bagi Peta & Filter
+    // ================= SHARED VIEWMODEL =================
     val petaViewModel: PetaViewModel = hiltViewModel()
+    val poptReportsViewModel: PoptReportsViewModel = hiltViewModel()
+    // ====================================================
 
     val bottomBarItems = remember(userRole) {
-        if (userRole == "popt") BottomNavItem.poptRoutes() else BottomNavItem.petaniRoutes()
+        if (userRole == "popt") BottomNavItem.poptRoutes()
+        else BottomNavItem.petaniRoutes()
     }
 
     val isMainTab = currentRoute in BottomNavItem.allRoutes()
@@ -62,14 +67,20 @@ fun MainScreen(
                         modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.BottomCenter
                     ) {
-                        BottomNavigationBar(navController = navController, items = bottomBarItems)
+                        BottomNavigationBar(
+                            navController = navController,
+                            items = bottomBarItems
+                        )
 
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .offset(y = (-28).dp)
                                 .size(56.dp)
-                                .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
+                                .background(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = CircleShape
+                                )
                                 .clickable {
                                     navController.navigate(SCANNER_ROUTE) {
                                         launchSingleTop = true
@@ -86,29 +97,39 @@ fun MainScreen(
                         }
                     }
                 } else {
-                    BottomNavigationBar(navController = navController, items = bottomBarItems)
+                    BottomNavigationBar(
+                        navController = navController,
+                        items = bottomBarItems
+                    )
                 }
             }
-        },
-    ) { innerPadding ->
-        val contentModifier = if (currentRoute == SCANNER_ROUTE || currentRoute == "filter_screen") {
-            Modifier
-        } else {
-            Modifier.padding(innerPadding)
         }
+    ) { innerPadding ->
+
+        val contentModifier =
+            if (currentRoute == SCANNER_ROUTE || currentRoute == "filter_screen") {
+                Modifier
+            } else {
+                Modifier.padding(innerPadding)
+            }
 
         NavHost(
             navController = navController,
             startDestination = BottomNavItem.Home.route,
             modifier = contentModifier
         ) {
+
             composable(BottomNavItem.Home.route) {
                 HomeScreen(navController = navController)
             }
 
             composable(BottomNavItem.Profile.route) {
                 val profileViewModel: ProfileViewModel = hiltViewModel()
-                ProfileScreen(profileViewModel = profileViewModel, navController = navController, onLogout = onLogout)
+                ProfileScreen(
+                    profileViewModel = profileViewModel,
+                    navController = navController,
+                    onLogout = onLogout
+                )
             }
 
             composable(BottomNavItem.Peta.route) {
@@ -116,14 +137,13 @@ fun MainScreen(
                     navController = navController,
                     petaViewModel = petaViewModel,
                     userRole = userRole,
-                    onReportClick = { report ->
-                        selectedReport = report
+                    onReportClick = {
+                        selectedReport = it
                         navController.navigate("report_detail")
                     }
                 )
             }
 
-            // Route Halaman Filter (Brimo Style)
             composable("filter_screen") {
                 FilterPetaScreen(
                     navController = navController,
@@ -138,22 +158,29 @@ fun MainScreen(
                 )
             }
 
+            // ================= PETANI =================
             if (userRole == "petani") {
+
                 composable(SCANNER_ROUTE) {
                     val homeViewModel: HomeViewModel = hiltViewModel()
-                    DetectionScreen(navController = navController, homeViewModel = homeViewModel)
+                    DetectionScreen(
+                        navController = navController,
+                        homeViewModel = homeViewModel
+                    )
                 }
+
                 composable(BottomNavItem.History.route) {
                     val historyViewModel: HistoryViewModel = hiltViewModel()
                     HistoryScreen(
                         navController = navController,
                         historyViewModel = historyViewModel,
-                        onNavigateToDetail = { report ->
-                            selectedReport = report
+                        onNavigateToDetail = {
+                            selectedReport = it
                             navController.navigate("petani_report_detail")
                         }
                     )
                 }
+
                 composable("petani_report_detail") {
                     PetaniReportDetailScreen(
                         navController = navController,
@@ -162,14 +189,24 @@ fun MainScreen(
                 }
             }
 
+            // ================= POPT =================
             if (userRole == "popt") {
+
                 composable(BottomNavItem.Reports.route) {
                     PoptReportsScreen(
                         navController = navController,
-                        onReportClick = { report ->
-                            selectedReport = report
+                        viewModel = poptReportsViewModel,
+                        onReportClick = {
+                            selectedReport = it
                             navController.navigate("report_detail")
                         }
+                    )
+                }
+
+                composable("report_preview") {
+                    ReportPreviewScreen(
+                        navController = navController,
+                        viewModel = poptReportsViewModel
                     )
                 }
             }

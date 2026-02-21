@@ -173,7 +173,7 @@ class HazardDetectionService : Service() {
                 if (!isWarningNotified) {
                     sendAlertNotification(
                         "Memasuki Area Waspada Hama",
-                        "Terdeteksi hama dalam ${minDistance.toInt()}m.",
+                        "Terdeteksi hama dalam radius 300m.",
                         false
                     )
                     isWarningNotified = true

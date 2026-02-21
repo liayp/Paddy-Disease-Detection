@@ -40,10 +40,13 @@ fun ReportDetailScreen(
     reportData: HotspotDto?
 ) {
     val context = LocalContext.current
-    if (reportData == null) return
+    if (reportData == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Laporan tidak ditemukan") }
+        return
+    }
 
     Scaffold { padding ->
-        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(padding)) {
+        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Box(modifier = Modifier.fillMaxWidth().height(350.dp)) {
                 AsyncImage(
                     model = ImageRequest.Builder(context).data(reportData.image_url).crossfade(true).build(),
