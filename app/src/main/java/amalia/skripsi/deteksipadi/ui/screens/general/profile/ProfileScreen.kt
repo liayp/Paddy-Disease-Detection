@@ -50,15 +50,15 @@ fun ProfileScreen(
     }
 
     Scaffold(
-        containerColor = Color(0xFFF5F5F5)
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()) // Agar bisa discroll di HP kecil
+                .verticalScroll(rememberScrollState())
         ) {
-            // HEADER SECTION
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -85,7 +85,7 @@ fun ProfileScreen(
                         .align(Alignment.BottomCenter)
                         .size(130.dp)
                         .clip(CircleShape)
-                        .background(Color.White)
+                        .background(MaterialTheme.colorScheme.surface)
                         .padding(4.dp)
                         .clip(CircleShape)
                         .background(Color.LightGray),
@@ -128,7 +128,7 @@ fun ProfileScreen(
                         text = userProfile?.full_name ?: "Pengguna",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Black
+                        color = MaterialTheme.colorScheme.onBackground
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -160,16 +160,15 @@ fun ProfileScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
-
+            // PERBAIKAN: Spacer dihapus agar langsung terhubung dengan konten di bawahnya
             // DETAIL INFORMASI (KARTU)
-            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp)) {
 
                 Text(
                     text = "Informasi Akun",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
@@ -208,11 +207,11 @@ fun ProfileScreen(
                 Button(
                     onClick = onLogout,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
                         contentColor = MaterialTheme.colorScheme.error
                     ),
                     shape = RoundedCornerShape(12.dp),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
@@ -234,7 +233,7 @@ fun ProfileScreen(
                 Text(
                     text = "Versi Aplikasi 1.0.0",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.LightGray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
 
@@ -253,10 +252,10 @@ fun ProfileInfoCard(
     iconColor: Color
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
-        modifier = Modifier.fillMaxWidth()
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -283,13 +282,13 @@ fun ProfileInfoCard(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }

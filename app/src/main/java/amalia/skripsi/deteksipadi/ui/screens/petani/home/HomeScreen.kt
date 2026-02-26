@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import java.util.Calendar
 
 @Composable
 fun HomeScreen(
@@ -138,13 +139,23 @@ fun HomeScreen(
 
 @Composable
 fun HomeHeader(userName: String, onNotifClick: () -> Unit) {
+    val greeting = remember {
+        val calendar = Calendar.getInstance()
+        when (calendar.get(Calendar.HOUR_OF_DAY)) {
+            in 0..10 -> "Selamat pagi"
+            in 11..14 -> "Selamat siang"
+            in 15..18 -> "Selamat sore"
+            else -> "Selamat malam"
+        }
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text(text = "Selamat pagi, 👋", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(text = "$greeting, 👋", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(text = userName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
         }
         IconButton(

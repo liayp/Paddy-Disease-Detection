@@ -79,6 +79,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
+    //splashscreen
+    implementation(libs.androidx.core.splashscreen)
+
     //hilt view model
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.hilt.android)

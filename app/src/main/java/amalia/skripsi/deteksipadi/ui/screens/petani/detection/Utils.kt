@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.graphics.PixelFormat
 import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
@@ -62,6 +63,12 @@ object ImageUtils {
             return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }
 
+        if (image.format == PixelFormat.RGBA_8888) {
+            val bitmap = createBitmap(image.width, image.height)
+            bitmap.copyPixelsFromBuffer(buffer)
+            return bitmap
+        }
+
         if (image.format == ImageFormat.YUV_420_888 || image.format == 0x22) {
             val width = image.width
             val height = image.height
@@ -78,6 +85,7 @@ object ImageUtils {
                 Bitmap.createBitmap(bitmap, 0, 0, width, height)
             }
         }
+
         return null
     }
 

@@ -30,22 +30,20 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
-@AndroidEntryPoint // WAJIB AGAR BISA INJECT REPOSITORY
+@AndroidEntryPoint
 class HazardDetectionService : Service() {
 
     @Inject
-    lateinit var hazardRepository: HazardRepository // Inject Repository
+    lateinit var hazardRepository: HazardRepository
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
 
-    // Data Cache
     private var hotspots: List<HotspotDto> = emptyList()
     private var userProfile: UserProfile? = null
     private var realtimeChannel: RealtimeChannel? = null
 
-    // State Debounce Notifikasi
     private var isDangerNotified = false
     private var isWarningNotified = false
 
@@ -59,14 +57,11 @@ class HazardDetectionService : Service() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // Inisialisasi Data & Role Check
         serviceScope.launch {
             try {
-                // Manual construct karena AuthRepository butuh context, atau inject juga bisa
                 val authRepo = AuthRepository(this@HazardDetectionService)
                 userProfile = authRepo.getUserProfile()
 
-                // Ambil data hotspot untuk geofencing (hanya jika petani)
                 if (userProfile?.role != "popt") {
                     hotspots = fetchActiveHotspots()
                 }
@@ -77,7 +72,7 @@ class HazardDetectionService : Service() {
                     startLocationUpdates()
                 }
             } catch (e: Exception) {
-                Log.e("HazardService", "Initialization failed: ${e.message}")
+                Log.e("HazardService", "Init failed: ${e.message}")
             }
         }
 
@@ -93,7 +88,6 @@ class HazardDetectionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // --- PERBAIKAN: Gunakan NotificationHelper agar Icon Benar ---
         val appIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, appIntent,
@@ -126,21 +120,17 @@ class HazardDetectionService : Service() {
                 table = "reports"
             }
             realtimeChannel!!.subscribe()
-
             changeFlow.collect { action ->
                 val record = action.record
                 val incomingDistrict = record["district"]?.jsonPrimitive?.contentOrNull
                 val myWkpp = userProfile?.wkpp_kecamatan ?: emptyList()
                 val isRelevant = myWkpp.any { it.equals(incomingDistrict, ignoreCase = true) }
-
                 if (isRelevant) {
                     val label = record["ai_label"]?.jsonPrimitive?.contentOrNull ?: "Hama"
                     sendTargetedNotification(label, incomingDistrict ?: "-")
                 }
             }
-        } catch (e: Exception) {
-            Log.e("HazardService", "Realtime Error: ${e.message}")
-        }
+        } catch (e: Exception) { Log.e("Hazard", e.message.toString()) }
     }
 
     private fun checkGeofenceForFarmer(userLat: Double, userLon: Double) {
@@ -157,25 +147,15 @@ class HazardDetectionService : Service() {
 
         when {
             minDistance <= 20.0 -> {
-                // Hanya kirim notifikasi jika sebelumnya belum ditandai Danger
                 if (!isDangerNotified) {
-                    sendAlertNotification(
-                        "BAHAYA! HAMA SANGAT DEKAT!",
-                        "Jarak hama: ${minDistance.toInt()} meter dari Anda.",
-                        true
-                    )
+                    sendAlertNotification("BAHAYA! HAMA SANGAT DEKAT!", "Jarak: ${minDistance.toInt()}m.", true)
                     isDangerNotified = true
                     isWarningNotified = true
                 }
             }
             minDistance <= 300.0 -> {
-                // Hanya kirim jika sebelumnya dari zona aman (Aman -> Waspada)
                 if (!isWarningNotified) {
-                    sendAlertNotification(
-                        "Memasuki Area Waspada Hama",
-                        "Terdeteksi hama dalam radius 300m.",
-                        false
-                    )
+                    sendAlertNotification("Memasuki Area Waspada", "Hama dalam radius 300m.", false)
                     isWarningNotified = true
                     isDangerNotified = false
                 }
@@ -187,57 +167,29 @@ class HazardDetectionService : Service() {
         }
     }
 
-    private fun sendTargetedNotification(hamaLabel: String, kecamatan: String) {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("navigate_to", "popt_reports")
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this, System.currentTimeMillis().toInt(), intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        // Gunakan Helper juga agar konsisten
-        NotificationHelper.showNotification(
-            context = this,
-            title = "Laporan Baru: $hamaLabel",
-            message = "Masuk di wilayah binaan Anda (Kec. $kecamatan).",
-            channelId = CHANNEL_ID_ALERT,
-            channelName = "Laporan Masuk",
-            intent = pendingIntent,
-            isUrgent = true
-        )
+    private fun sendTargetedNotification(label: String, district: String) {
+        val intent = Intent(this, MainActivity::class.java).apply { putExtra("navigate_to", "popt_reports") }
+        val pIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        NotificationHelper.showNotification(this, "Laporan Baru: $label", "Di $district", CHANNEL_ID_ALERT, "Alert", pIntent, true)
     }
 
-    private fun sendAlertNotification(title: String, content: String, isUrgent: Boolean) {
+    private fun sendAlertNotification(title: String, msg: String, urgent: Boolean) {
         val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-
-        NotificationHelper.showNotification(
-            context = this,
-            title = title,
-            message = content,
-            channelId = "hazard_channel", // Pastikan channel ID konsisten
-            channelName = "Peringatan Bahaya",
-            intent = pendingIntent,
-            isUrgent = isUrgent
-        )
+        val pIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        NotificationHelper.showNotification(this, title, msg, CHANNEL_ID_ALERT, "Alert", pIntent, urgent)
     }
 
     private fun startLocationUpdates() {
         try {
             val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000).build()
             fusedLocationClient.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
-        } catch (_: SecurityException) {
-            Log.e("HazardService", "Izin lokasi ditolak")
-        }
+        } catch (_: SecurityException) {}
     }
 
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
         fusedLocationClient.removeLocationUpdates(locationCallback)
-        CoroutineScope(Dispatchers.IO).launch { realtimeChannel?.unsubscribe() }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

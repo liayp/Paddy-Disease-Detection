@@ -22,11 +22,15 @@ import javax.inject.Inject
 class AuthRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    // Ganti dengan Web Client ID dari Google Cloud Console Anda
     private val WEB_CLIENT_ID = "212921453036-bt21jje8evthgbo89tlgsani8a6srl92.apps.googleusercontent.com"
 
-    // Cek status login
-    fun isUserLoggedIn(): Boolean {
+    suspend fun isUserLoggedIn(): Boolean {
+        try {
+            // WAJIB: Tunggu Supabase memuat sesi dari penyimpanan HP (SharedPreferences)
+            supabase.auth.awaitInitialization()
+        } catch (e: Exception) {
+            Log.e("AuthRepo", "Gagal inisialisasi sesi: ${e.message}")
+        }
         return supabase.auth.currentSessionOrNull() != null
     }
 
@@ -34,8 +38,6 @@ class AuthRepository @Inject constructor(
     suspend fun getUserProfile(): UserProfile? {
         val userId = supabase.auth.currentUserOrNull()?.id ?: return null
         return try {
-            // Kita ambil data murni dari tabel 'profiles'
-            // Gunakan columns = Columns.ALL agar aman
             supabase.postgrest.from("profiles")
                 .select(columns = Columns.ALL) {
                     filter { eq("id", userId) }
@@ -104,19 +106,16 @@ class AuthRepository @Inject constructor(
                 supabase.auth.signInWith(IDToken) {
                     idToken = googleIdToken.idToken
                     provider = Google
-                    // Google otomatis dianggap verified email
                 }
                 Result.success("Login Google Berhasil")
             } else {
                 Result.failure(Exception("Gagal mendapatkan kredensial Google"))
             }
         } catch (e: GetCredentialException) {
-            // TAMBAHKAN LOG INI
             Log.e("GoogleLogin", "Error Credential: ${e.message}")
             e.printStackTrace()
             Result.failure(e)
         } catch (e: Exception) {
-            // TAMBAHKAN LOG INI
             Log.e("GoogleLogin", "Error Umum: ${e.message}")
             e.printStackTrace()
             Result.failure(e)

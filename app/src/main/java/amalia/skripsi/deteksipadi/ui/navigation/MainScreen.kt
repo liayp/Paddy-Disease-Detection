@@ -16,6 +16,7 @@ import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsViewModel
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.ReportDetailScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.ReportPreviewScreen
+import amalia.skripsi.deteksipadi.util.RequestPermissionsAndStartService
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -45,12 +46,12 @@ fun MainScreen(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    RequestPermissionsAndStartService()
+
     var selectedReport by remember { mutableStateOf<HotspotDto?>(null) }
 
-    // ================= SHARED VIEWMODEL =================
     val petaViewModel: PetaViewModel = hiltViewModel()
     val poptReportsViewModel: PoptReportsViewModel = hiltViewModel()
-    // ====================================================
 
     val bottomBarItems = remember(userRole) {
         if (userRole == "popt") BottomNavItem.poptRoutes()
