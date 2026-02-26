@@ -2,10 +2,10 @@ package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.local.PendingReport
+import amalia.skripsi.deteksipadi.data.submitReportToSupabase
 import amalia.skripsi.deteksipadi.data.supabase
 import amalia.skripsi.deteksipadi.ml.DetectionResult
 import amalia.skripsi.deteksipadi.ml.YoloDetector
-import amalia.skripsi.deteksipadi.ui.screens.petani.detection.ImageUtils.drawDetectionOnBitmap
 import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
 import amalia.skripsi.deteksipadi.workers.UploadWorker
 import android.Manifest
@@ -14,8 +14,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.location.Geocoder
-import android.os.Build
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -42,20 +42,19 @@ import androidx.core.app.ActivityCompat
 import androidx.navigation.NavController
 import androidx.room.Room
 import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import com.google.android.gms.location.LocationServices
-import io.github.jan.supabase.gotrue.auth
+import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.util.Locale
 import java.util.concurrent.Executors
-import kotlin.coroutines.resume
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,7 +71,7 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
     // --- State Data ---
     var detectionResults by remember { mutableStateOf<List<DetectionResult>>(emptyList()) }
     var reportLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var isSaving by remember { mutableStateOf(false) } // Loading saat simpan ke DB Lokal
+    var isUploading by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
 
     // --- Tools ---
@@ -81,9 +80,8 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
-
     val detector = remember {
-        try { YoloDetector(context, "best.tflite") } catch (e: Exception) { null }
+        try { YoloDetector(context, "best.tflite") } catch (_: Exception) { null }
     }
 
     DisposableEffect(Unit) { onDispose { detector?.close() } }
@@ -139,26 +137,18 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
         }
     }
 
-    // Mendapatkan Kecamatan (Async)
-    suspend fun getDistrictName(ctx: Context, lat: Double, lon: Double): String = suspendCancellableCoroutine { cont ->
-        val geocoder = Geocoder(ctx, Locale.getDefault())
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                geocoder.getFromLocation(lat, lon, 1) { addresses ->
-                    val name = if (addresses.isNotEmpty()) addresses[0].locality ?: "Tidak Diketahui" else "Tidak Diketahui"
-                    cont.resume(name)
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                val addresses = geocoder.getFromLocation(lat, lon, 1)
-                val name = if (!addresses.isNullOrEmpty()) addresses[0].locality ?: "Tidak Diketahui" else "Tidak Diketahui"
-                cont.resume(name)
-            }
-        } catch (e: Exception) {
-            cont.resume("Tidak Diketahui")
-        }
+    // --- FUNGSI CEK INTERNET DARI OLD CODE ---
+    fun isOnline(context: Context): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+        return capabilities != null && (
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                )
     }
 
+    // --- RENDER UI ---
     if (arePermissionsGranted) {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
@@ -167,68 +157,79 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
             containerColor = MaterialTheme.colorScheme.background,
             sheetContainerColor = Color(0xFFFFF8E1),
             sheetContent = {
-                // Bottom Sheet Content (Hasil Deteksi & Tombol Kirim)
                 ResultSheetContent(
                     results = detectionResults,
                     locationStr = reportLocation?.let { "${it.first}, ${it.second}" },
-                    isLoading = isSaving,
+                    isLoading = isUploading,
                     onSend = {
-                        // LOGIC KIRIM: Menggunakan saveToLocalAndQueue
-                        if (reportLocation != null && capturedBitmapState.value != null) {
-                            isSaving = true
+                        val rawBmp = capturedBitmapState.value
+                        val loc = reportLocation
+
+                        if (loc != null && rawBmp != null) {
+                            val currentUser = supabase.auth.currentUserOrNull()
+                            val userId = currentUser?.id ?: ""
+                            val hasInternet = isOnline(context)
+
                             scope.launch(Dispatchers.IO) {
-                                // Ambil User ID (Wajib Login)
-                                val currentUser = supabase.auth.currentUserOrNull()
-                                val userId = currentUser?.id
+                                val finalBitmap = ImageUtils.drawDetectionOnBitmap(rawBmp, detectionResults)
 
-                                if (userId == null) {
+                                // Konversi Gambar Berkotak ke Bytes
+                                val stream = ByteArrayOutputStream()
+                                finalBitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                                val photoBytes = stream.toByteArray()
+                                stream.close()
+
+                                val addressInfo = ImageUtils.getAddressName(context, loc.first, loc.second)
+
+                                // --- JALUR ONLINE ---
+                                if (hasInternet) {
+                                    withContext(Dispatchers.Main) { isUploading = true }
+
+                                    val result = submitReportToSupabase(
+                                        photoBytes = photoBytes,
+                                        results = detectionResults,
+                                        lat = loc.first,
+                                        lon = loc.second,
+                                        kecamatan = addressInfo.first,
+                                        kelurahan = addressInfo.second,
+                                        addressDetail = addressInfo.third,
+                                        userId = userId
+                                    )
+
                                     withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, "Sesi berakhir. Silakan login ulang.", Toast.LENGTH_LONG).show()
-                                        isSaving = false
+                                        isUploading = false
+                                        if (result.isSuccess) {
+                                            showSuccessDialog = true
+                                        } else {
+                                            Toast.makeText(context, "Gagal upload, simpan offline...", Toast.LENGTH_SHORT).show()
+                                            // Kalau gagal, simpan lokal gambar yg sudah berkotak
+                                            saveToLocalAndQueue(context, finalBitmap, detectionResults, loc, addressInfo, userId)
+                                            onReset()
+                                        }
                                     }
-                                    return@launch
                                 }
+                                // --- JALUR OFFLINE ---
+                                else {
+                                    // Simpan lokal gambar yg sudah berkotak
+                                    saveToLocalAndQueue(context, finalBitmap, detectionResults, loc, addressInfo, userId)
 
-                                // Gambar Bounding Box ke Bitmap
-                                val markedBitmap = drawDetectionOnBitmap(
-                                    originalBitmap = capturedBitmapState.value!!,
-                                    results = detectionResults
-                                )
-
-                                // Dapatkan Nama Kecamatan
-                                val kecamatan = getDistrictName(
-                                    context, reportLocation!!.first, reportLocation!!.second
-                                )
-
-                                // SIMPAN KE LOKAL & ANTRIKAN WORKER
-                                saveToLocalAndQueue(
-                                    context = context,
-                                    bmpWithBox = markedBitmap,
-                                    results = detectionResults,
-                                    loc = reportLocation!!,
-                                    // Masukkan kecamatan ke dalam Triple (Kecamatan, Kelurahan, Detail)
-                                    // Isi Kelurahan/Detail "-" dulu jika belum ada logic detailnya
-                                    addr = Triple(kecamatan, "-", "-"),
-                                    userId = userId
-                                )
-
-                                // 5. Feedback Sukses
-                                withContext(Dispatchers.Main) {
-                                    isSaving = false
-                                    showSuccessDialog = true
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Disimpan offline. Menunggu sinyal...", Toast.LENGTH_LONG).show()
+                                        onReset()
+                                    }
                                 }
                             }
-                        } else {
-                            Toast.makeText(context, "Lokasi wajib aktif untuk melapor!", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
             }
         ) { _ ->
+            // PERBAIKAN UI (Abaikan innerPadding agar kamera fix di tempat)
             Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     ScannerTopBar(navController, cameraExecutor)
 
+                    // Area Preview Kamera
                     Box(modifier = Modifier.weight(1f)) {
                         ScannerContent(
                             hasCameraPermission = remember { mutableStateOf(true) },
@@ -242,15 +243,13 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                             context = context,
                             detector = detector,
                             detectionResults = detectionResults,
-                            onRealtimeDetection = {
-                                // Realtime hanya jalan jika belum capture
-                                if (!showCapturedImageState.value) detectionResults = it
-                            },
+                            onRealtimeDetection = { if (!showCapturedImageState.value) detectionResults = it },
                             onClearImage = { onReset() },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
 
+                    // Spacer di bawah kamera
                     Box(modifier = Modifier.height(110.dp).fillMaxWidth()) {
                         if (!showCapturedImageState.value) {
                             ScannerBottomBar(onGalleryClick = {
@@ -277,13 +276,8 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                     AlertDialog(
                         onDismissRequest = { onReset() },
                         icon = { Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(48.dp)) },
-                        title = { Text("Laporan Disimpan!") },
-                        text = {
-                            Text(
-                                "Laporan tersimpan di memori HP dan akan dikirim otomatis ke sistem saat sinyal stabil.",
-                                textAlign = TextAlign.Center
-                            )
-                        },
+                        title = { Text("Laporan Terkirim!") },
+                        text = { Text("Data deteksi dan lokasi telah berhasil disimpan ke sistem.", textAlign = TextAlign.Center) },
                         confirmButton = {
                             Button(
                                 onClick = {
@@ -313,55 +307,40 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
 
 suspend fun saveToLocalAndQueue(
     context: Context,
-    bmpWithBox: Bitmap,
+    bmpWithBox: Bitmap, // Bitmap yang sudah ada kotaknya
     results: List<DetectionResult>,
     loc: Pair<Double, Double>,
-    addr: Triple<String, String, String>, // (Kecamatan, Kelurahan, Detail)
+    addr: Triple<String, String, String>,
     userId: String
 ) {
-    try {
-        // Simpan File Gambar (Cache Lokal)
-        val fileName = "upload_${System.currentTimeMillis()}.jpg"
-        val file = File(context.filesDir, fileName)
-        val fileStream = FileOutputStream(file)
-        bmpWithBox.compress(Bitmap.CompressFormat.JPEG, 70, fileStream)
-        fileStream.flush()
-        fileStream.close()
+    // Simpan File Gambar (Yang sudah ada kotaknya)
+    val fileName = "upload_${System.currentTimeMillis()}.jpg"
+    val file = File(context.filesDir, fileName)
+    val fileStream = FileOutputStream(file)
+    bmpWithBox.compress(Bitmap.CompressFormat.JPEG, 70, fileStream)
+    fileStream.close()
 
-        // Ambil data utama
-        val best = results.maxByOrNull { it.score }
-        val label = best?.label ?: "Unknown"
-        val score = best?.score ?: 0f
+    // Ambil data utama untuk DB Lokal
+    val best = results.maxByOrNull { it.score }
+    val label = best?.label ?: "Unknown"
+    val score = best?.score ?: 0f
 
-        // Masukkan ke Room Database
-        val db = Room.databaseBuilder(context, AppDatabase::class.java, "padi-database").build()
+    // Masukkan ke Room
+    val db = Room.databaseBuilder(context, AppDatabase::class.java, "padi-database").build()
+    val pendingReport = PendingReport(
+        imagePath = file.absolutePath,
+        label = label,
+        confidence = score,
+        lat = loc.first,
+        lon = loc.second,
+        kecamatan = addr.first,
+        kelurahan = addr.second,
+        addressDetail = addr.third,
+        userId = userId
+    )
+    db.pendingReportDao().insert(pendingReport)
 
-        val pendingReport = PendingReport(
-            imagePath = file.absolutePath,
-            label = label,
-            confidence = score,
-            lat = loc.first,
-            lon = loc.second,
-            kecamatan = addr.first,
-            kelurahan = addr.second,
-            addressDetail = addr.third,
-            userId = userId
-        )
-
-        db.pendingReportDao().insert(pendingReport)
-        db.close()
-
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-
-        val req = OneTimeWorkRequest.Builder(UploadWorker::class.java)
-            .setConstraints(constraints)
-            .build()
-
-        WorkManager.getInstance(context).enqueue(req)
-
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
+    val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+    val req = OneTimeWorkRequest.Builder(UploadWorker::class.java).setConstraints(constraints).build()
+    WorkManager.getInstance(context).enqueueUniqueWork("UploadReports", ExistingWorkPolicy.KEEP, req)
 }
