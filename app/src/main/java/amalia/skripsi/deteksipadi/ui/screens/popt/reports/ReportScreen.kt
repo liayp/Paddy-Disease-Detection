@@ -247,7 +247,7 @@ fun PoptReportsScreen(
 @Composable
 fun PoptReportCard(item: HotspotDto, onClick: () -> Unit) {
     val context = LocalContext.current
-    val statusColor = if (item.status.lowercase() == "pending") Color(0xFFF57C00) else Color(0xFF2E7D32)
+    val statusColor = if (item.status.lowercase() == "pending") Color(0xFFF57C00) else MaterialTheme.colorScheme.primary
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(20.dp),

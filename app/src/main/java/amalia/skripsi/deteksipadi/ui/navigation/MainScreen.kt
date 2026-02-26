@@ -11,8 +11,10 @@ import amalia.skripsi.deteksipadi.ui.screens.general.profile.ProfileViewModel
 import amalia.skripsi.deteksipadi.ui.screens.petani.detection.DetectionScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.history.HistoryScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.history.HistoryViewModel
-import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeScreen
-import amalia.skripsi.deteksipadi.ui.screens.petani.home.HomeViewModel
+import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeViewModel
+import amalia.skripsi.deteksipadi.ui.screens.general.home.PetaniHomeScreen
+import amalia.skripsi.deteksipadi.ui.screens.general.home.PoptHomeScreen
+import amalia.skripsi.deteksipadi.ui.screens.general.notification.NotificationScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.report.PetaniReportDetailScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsViewModel
@@ -92,6 +94,7 @@ fun MainScreen(
 
     var selectedReport by remember { mutableStateOf<HotspotDto?>(null) }
 
+    val homeViewModel: HomeViewModel = hiltViewModel()
     val petaViewModel: PetaViewModel = hiltViewModel()
     val poptReportsViewModel: PoptReportsViewModel = hiltViewModel()
 
@@ -165,7 +168,15 @@ fun MainScreen(
         ) {
 
             composable(BottomNavItem.Home.route) {
-                HomeScreen(navController = navController)
+                if (userRole == "popt") {
+                    PoptHomeScreen(navController = navController, viewModel = homeViewModel)
+                } else {
+                    PetaniHomeScreen(navController = navController, viewModel = homeViewModel)
+                }
+            }
+
+            composable("notifications") {
+                NotificationScreen(navController = navController, viewModel = homeViewModel)
             }
 
             composable(BottomNavItem.Profile.route) {

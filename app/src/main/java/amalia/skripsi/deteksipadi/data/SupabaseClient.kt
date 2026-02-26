@@ -35,7 +35,7 @@ data class HotspotDto(
     val address_detail: String,
     val lat: Double,
     val lon: Double,
-    val user_id: String? = null
+    val user_id: String? = null,
 )
 
 @Serializable
