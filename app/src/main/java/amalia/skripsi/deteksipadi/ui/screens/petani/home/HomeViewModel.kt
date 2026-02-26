@@ -49,19 +49,18 @@ data class ReportHistoryDto(
 class HomeViewModel @Inject constructor(
     private val authRepo: AuthRepository,
     private val db: AppDatabase,
-    private val hazardRepo: HazardRepository // <--- Inject HazardRepository
+    private val hazardRepo: HazardRepository
 ) : ViewModel() {
 
-    // Direct Stream dari Repository agar sinkron dengan PetaScreen
     val isGeofenceDanger = hazardRepo.isDanger.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = false
     )
 
     val distanceToHama = hazardRepo.currentDistance.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = 0.0
     )
 

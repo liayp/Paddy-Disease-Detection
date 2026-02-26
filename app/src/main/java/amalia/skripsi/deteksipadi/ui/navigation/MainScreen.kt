@@ -1,6 +1,8 @@
 package amalia.skripsi.deteksipadi.ui.navigation
 
+import amalia.skripsi.deteksipadi.data.HazardRepository
 import amalia.skripsi.deteksipadi.data.HotspotDto
+import amalia.skripsi.deteksipadi.data.fetchActiveHotspots
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.FilterPetaScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.PetaScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.PetaViewModel
@@ -28,12 +30,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 
 const val SCANNER_ROUTE = "scanner"
 
@@ -42,11 +50,45 @@ fun MainScreen(
     userRole: String,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val hazardRepo: HazardRepository = hiltViewModel<PetaViewModel>().hazardRepo
+
+    LaunchedEffect(Unit) {
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+
+        val allHotspots = try { fetchActiveHotspots() } catch(e: Exception) { emptyList() }
+
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000) // Cek tiap 5 detik
+            .setMinUpdateDistanceMeters(10f)
+            .build()
+
+        val locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                val lastLocation = result.lastLocation ?: return
+                hazardRepo.updateLocation(
+                    lastLocation.latitude,
+                    lastLocation.longitude,
+                    allHotspots
+                )
+            }
+        }
+
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                android.os.Looper.getMainLooper()
+            )
+        }
+    }
+
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-
-    RequestPermissionsAndStartService()
 
     var selectedReport by remember { mutableStateOf<HotspotDto?>(null) }
 
@@ -59,6 +101,8 @@ fun MainScreen(
     }
 
     val isMainTab = currentRoute in BottomNavItem.allRoutes()
+
+    RequestPermissionsAndStartService()
 
     Scaffold(
         bottomBar = {

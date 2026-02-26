@@ -1,5 +1,12 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.home
 
+import amalia.skripsi.deteksipadi.ui.navigation.BottomNavItem
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
 import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -36,19 +43,44 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.util.Calendar
 
+// --- HELPER UNTUK CEK INTERNET REALTIME ---
+fun isOnlineHome(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val cap = cm.getNetworkCapabilities(cm.activeNetwork)
+    return cap != null && (cap.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) || cap.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))
+}
+
+@Composable
+fun rememberHomeConnectivityState(context: Context): State<Boolean> {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val isConnected = remember { mutableStateOf(isOnlineHome(context)) }
+
+    DisposableEffect(cm) {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { isConnected.value = true }
+            override fun onLost(network: Network) { isConnected.value = false }
+        }
+        cm.registerDefaultNetworkCallback(callback)
+        onDispose { cm.unregisterNetworkCallback(callback) }
+    }
+    return isConnected
+}
+
 @Composable
 fun HomeScreen(
     navController: NavController,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    // Sinkronisasi realtime dengan HazardRepository
     val isDanger by viewModel.isGeofenceDanger.collectAsStateWithLifecycle()
     val distance by viewModel.distanceToHama.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        viewModel.refreshData()
+    // Status Internet Realtime
+    val isOnline by rememberHomeConnectivityState(context)
+
+    LaunchedEffect(isOnline) {
+        if(isOnline) viewModel.refreshData()
     }
 
     Column(
@@ -64,8 +96,7 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Card ini sekarang akan otomatis berubah warna jika Repository mendeteksi bahaya di Peta
-        HeroStatusCard(isDanger = isDanger, distance = distance)
+        HeroStatusCard(isDanger = isDanger, distance = distance, isOffline = !isOnline)
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -110,7 +141,11 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             TextButton(onClick = {
-                navController.navigate("history") { launchSingleTop = true }
+                navController.navigate(BottomNavItem.History.route) {
+                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
             }) {
                 Text("Lihat Semua")
             }
@@ -118,19 +153,35 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (state.reportDisplay != null) {
-            LatestReportCard(
-                report = state.reportDisplay!!,
-                onClick = {
-                    if (state.reportDisplay!!.isFromLocal) {
-                        Toast.makeText(context, "Laporan menunggu sinyal...", Toast.LENGTH_SHORT).show()
-                    } else {
-                        navController.navigate("history")
+        val report = state.reportDisplay
+
+        if (report != null) {
+            if (!isOnline && !report.isFromLocal) {
+                EmptyStateCard(
+                    onClick = { navController.navigate("scanner") },
+                    isOffline = true
+                )
+            } else {
+                LatestReportCard(
+                    report = report,
+                    onClick = {
+                        if (report.isFromLocal) {
+                            Toast.makeText(context, "Laporan ini sedang menunggu sinyal internet...", Toast.LENGTH_SHORT).show()
+                        } else {
+                            navController.navigate("history") {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
                     }
-                }
-            )
+                )
+            }
         } else {
-            EmptyStateCard(onClick = { navController.navigate("scan") })
+            EmptyStateCard(
+                onClick = { navController.navigate("scanner") },
+                isOffline = false
+            )
         }
 
         Spacer(modifier = Modifier.height(100.dp))
@@ -168,24 +219,39 @@ fun HomeHeader(userName: String, onNotifClick: () -> Unit) {
 }
 
 @Composable
-fun HeroStatusCard(isDanger: Boolean, distance: Double) {
-    val gradientColors = if (isDanger) {
-        listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.errorContainer)
-    } else {
-        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)
+fun HeroStatusCard(isDanger: Boolean, distance: Double, isOffline: Boolean) {
+
+    val gradientColors = when {
+        isOffline -> listOf(Color(0xFF9E9E9E), Color(0xFF616161)) // Warna Offline
+        isDanger -> listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.errorContainer)
+        else -> listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)
     }
 
-    val icon = if (isDanger) Icons.Default.Warning else Icons.Default.Security
-    val title = if (isDanger) "WASPADA: ZONA HAMA" else "Sistem Aktif Memantau"
-    val subtitle = if (isDanger) "Hama terdeteksi ${distance.toInt()} meter di dekat Anda!" else "Wilayah Anda terpantau aman."
+    val icon = when {
+        isOffline -> Icons.Default.Warning
+        isDanger -> Icons.Default.Warning
+        else -> Icons.Default.Security
+    }
+
+    val title = when {
+        isOffline -> "KONEKSI TERPUTUS"
+        isDanger -> "WASPADA: ZONA HAMA"
+        else -> "Sistem Aktif Memantau"
+    }
+
+    val subtitle = when {
+        isOffline -> "Pantauan lokasi realtime dijeda. Harap sambungkan ke internet."
+        isDanger -> "Hama terdeteksi ${distance.toInt()} meter di dekat Anda!"
+        else -> "Wilayah Anda terpantau aman."
+    }
 
     val infiniteTransition = rememberInfiniteTransition(label = "radar")
     val scale by infiniteTransition.animateFloat(
-        initialValue = 1f, targetValue = 1.4f,
+        initialValue = 1f, targetValue = if (isOffline) 1f else 1.4f,
         animationSpec = infiniteRepeatable(tween(2000), RepeatMode.Restart), label = "scale"
     )
     val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f, targetValue = 0f,
+        initialValue = if (isOffline) 0f else 0.5f, targetValue = 0f,
         animationSpec = infiniteRepeatable(tween(2000), RepeatMode.Restart), label = "alpha"
     )
 
@@ -207,7 +273,7 @@ fun HeroStatusCard(isDanger: Boolean, distance: Double) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Pantauan lokasi realtime aktif", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
+                    Text(if (isOffline) "Sistem offline" else "Pantauan lokasi realtime aktif", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
                 }
             }
         }
@@ -263,12 +329,30 @@ fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
 }
 
 @Composable
-fun EmptyStateCard(onClick: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            Icon(Icons.Default.CameraAlt, null, tint = MaterialTheme.colorScheme.primary)
+fun EmptyStateCard(onClick: () -> Unit, isOffline: Boolean = false) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = if (isOffline) Icons.Default.Warning else Icons.Default.CameraAlt,
+                contentDescription = null,
+                tint = if (isOffline) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            )
             Spacer(modifier = Modifier.width(12.dp))
-            Text(text = "Belum ada laporan. Ayo scan sekarang!", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = if (isOffline) "Koneksi terputus. Riwayat terbaru tidak dapat ditampilkan." else "Belum ada laporan. Ayo scan sekarang!",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

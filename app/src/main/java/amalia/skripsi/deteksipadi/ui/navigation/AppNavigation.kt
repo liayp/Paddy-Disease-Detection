@@ -20,33 +20,21 @@ fun AppNavigation(splashScreen: SplashScreen) {
     var startDestination by remember { mutableStateOf<String?>(null) }
     var userRole by remember { mutableStateOf<String?>(null) }
 
-    // --- TAHAN SPLASH SCREEN ---
-    // Splash screen (ikon app) akan terus tampil di layar selama startDestination masih null
     splashScreen.setKeepOnScreenCondition {
         startDestination == null
     }
 
-    // --- CEK LOGIN (Hanya jalan sekali saat app dibuka) ---
     LaunchedEffect(Unit) {
-        // Ini akan menunggu Supabase baca token dari storage HP
         val isLoggedIn = authRepo.isUserLoggedIn()
 
         if (isLoggedIn) {
-            val profile = authRepo.getUserProfile()
-            if (profile != null) {
-                userRole = profile.role
-                startDestination = "main" // Langsung masuk ke App
-            } else {
-                authRepo.logout()
-                startDestination = "login" // Profil bermasalah, suruh login lagi
-            }
+            userRole = authRepo.getSavedRole()
+            startDestination = "main"
         } else {
-            startDestination = "login" // Belum login, ke halaman login
+            startDestination = "login"
         }
     }
 
-    // --- RENDER NAVIGASI ---
-    // Karena kita pakai Splash Screen native, kita tidak perlu lagi Box Loading/CircularProgressIndicator
     if (startDestination != null) {
         NavHost(navController = navController, startDestination = startDestination!!) {
 
@@ -55,7 +43,11 @@ fun AppNavigation(splashScreen: SplashScreen) {
                     onLoginSuccess = {
                         scope.launch {
                             val profile = authRepo.getUserProfile()
-                            userRole = profile?.role ?: "petani"
+                            val role = profile?.role ?: "petani"
+
+                            authRepo.saveUserRole(role) // SIMPAN KE LOKAL SAAT LOGIN
+                            userRole = role
+
                             navController.navigate("main") {
                                 popUpTo("login") { inclusive = true }
                             }
@@ -69,10 +61,10 @@ fun AppNavigation(splashScreen: SplashScreen) {
                     userRole = userRole ?: "petani",
                     onLogout = {
                         scope.launch {
-                            authRepo.logout() // Hapus token dari HP
+                            authRepo.logout()
                             userRole = null
                             navController.navigate("login") {
-                                popUpTo(0) // Bersihkan semua history agar tidak bisa back
+                                popUpTo(0)
                             }
                         }
                     }

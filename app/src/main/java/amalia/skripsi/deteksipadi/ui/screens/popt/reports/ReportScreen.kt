@@ -3,6 +3,10 @@
 package amalia.skripsi.deteksipadi.ui.screens.popt.reports
 
 import amalia.skripsi.deteksipadi.data.HotspotDto
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -19,12 +23,42 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import java.util.*
+
+
+fun isOnlinePopt(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val capabilities = cm.getNetworkCapabilities(cm.activeNetwork)
+    return capabilities != null && (
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            )
+}
+
+@Composable
+fun rememberPoptConnectivityState(context: Context): State<Boolean> {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val isConnected = remember { mutableStateOf(isOnlinePopt(context)) }
+
+    DisposableEffect(cm) {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { isConnected.value = true }
+            override fun onLost(network: Network) { isConnected.value = false }
+        }
+
+        cm.registerDefaultNetworkCallback(callback)
+
+        onDispose { cm.unregisterNetworkCallback(callback) }
+    }
+    return isConnected
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -33,12 +67,23 @@ fun PoptReportsScreen(
     viewModel: PoptReportsViewModel,
     onReportClick: (HotspotDto) -> Unit
 ) {
+    val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
     val tabs = listOf("Proses", "Selesai")
     val pagerState = rememberPagerState { tabs.size }
     val scope = rememberCoroutineScope()
     var showDownloadSheet by remember { mutableStateOf(false) }
     var showManualPicker by remember { mutableStateOf(false) }
+
+    // DETEKSI JARINGAN REALTIME
+    val isConnected by rememberPoptConnectivityState(context)
+
+    // AUTO-RELOAD SAAT JARINGAN KEMBALI
+    LaunchedEffect(isConnected) {
+        if (isConnected) {
+            viewModel.loadPoptInitialData()
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.primary,
@@ -47,8 +92,11 @@ fun PoptReportsScreen(
                 title = { Text("Laporan Wilayah Binaan", fontWeight = FontWeight.Bold) },
                 windowInsets = WindowInsets(0),
                 actions = {
-                    IconButton(onClick = { showDownloadSheet = true }) {
-                        Icon(Icons.Default.Download, null, tint = Color.White)
+                    // Tombol download hanya bisa diklik jika ada internet (agar tidak error)
+                    if (isConnected) {
+                        IconButton(onClick = { showDownloadSheet = true }) {
+                            Icon(Icons.Default.Download, null, tint = Color.White)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -76,7 +124,9 @@ fun PoptReportsScreen(
                     }
                 ) {
                     tabs.forEachIndexed { index, title ->
-                        val count = if (index == 0) state.processList.size else state.finishedList.size
+                        // Jika offline, sembunyikan angka badge
+                        val count = if (!isConnected) 0 else if (index == 0) state.processList.size else state.finishedList.size
+
                         Tab(
                             selected = pagerState.currentPage == index,
                             onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
@@ -96,13 +146,36 @@ fun PoptReportsScreen(
                 HorizontalPager(state = pagerState, modifier = Modifier.weight(1f), verticalAlignment = Alignment.Top) { page ->
                     val currentItems = if (page == 0) state.processList else state.finishedList
 
-                    if (state.isLoading) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    } else if (currentItems.isEmpty()) {
-                        EmptyPoptState()
-                    } else {
-                        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(currentItems) { PoptReportCard(it, onClick = { onReportClick(it) }) }
+                    // LOGIKA RENDER BERDASARKAN JARINGAN
+                    when {
+                        // Jika Offline, Blokir Layar Langsung
+                        !isConnected -> {
+                            EmptyPoptState(isOffline = true)
+                        }
+
+                        // Loading State
+                        state.isLoading -> {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        }
+
+                        // Kosong tapi Online
+                        currentItems.isEmpty() -> {
+                            EmptyPoptState(isOffline = false)
+                        }
+
+                        // Normal (Ada Internet & Ada Data)
+                        else -> {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 100.dp, start = 16.dp, end = 16.dp, top = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(currentItems) {
+                                    PoptReportCard(it, onClick = { onReportClick(it) })
+                                }
+                            }
                         }
                     }
                 }
@@ -150,12 +223,12 @@ fun PoptReportsScreen(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
                         IconButton(onClick = { if(tempM > 0) tempM-- }) { Icon(Icons.Default.Remove, null) }
-                        Text(months[tempM], Modifier.width(100.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.Bold)
+                        Text(months[tempM], Modifier.width(100.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
                         IconButton(onClick = { if(tempM < 11) tempM++ }) { Icon(Icons.Default.Add, null) }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
                         IconButton(onClick = { tempY-- }) { Icon(Icons.Default.Remove, null) }
-                        Text(tempY.toString(), Modifier.width(100.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.Bold)
+                        Text(tempY.toString(), Modifier.width(100.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
                         IconButton(onClick = { tempY++ }) { Icon(Icons.Default.Add, null) }
                     }
                 }
@@ -208,13 +281,38 @@ fun PoptReportCard(item: HotspotDto, onClick: () -> Unit) {
 }
 
 @Composable
-fun EmptyPoptState() {
-    Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape).padding(24.dp)) {
-            Icon(Icons.Default.History, null, Modifier.size(48.dp), Color.Gray)
+fun EmptyPoptState(isOffline: Boolean) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape).padding(24.dp)) {
+            Icon(
+                imageVector = if (isOffline) Icons.Default.Warning else Icons.Default.History,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = if (isOffline) MaterialTheme.colorScheme.error else Color.Gray
+            )
         }
+
         Spacer(Modifier.height(16.dp))
-        Text("Tidak ada laporan", fontWeight = FontWeight.Bold)
-        Text("Laporan wilayah binaan Anda akan muncul di sini", fontSize = 14.sp, color = Color.Gray, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+
+        Text(
+            text = if (isOffline) "Koneksi Terputus" else "Tidak ada laporan",
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            text = if (isOffline) "Laporan akan tampil jika perangkat terhubung ke internet." else "Laporan wilayah binaan Anda akan muncul di sini",
+            fontSize = 14.sp,
+            color = Color.Gray,
+            textAlign = TextAlign.Center
+        )
     }
 }

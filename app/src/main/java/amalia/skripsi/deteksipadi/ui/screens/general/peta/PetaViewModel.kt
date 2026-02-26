@@ -14,7 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 
 @HiltViewModel
 class PetaViewModel @Inject constructor(
-    private val hazardRepo: HazardRepository
+    val hazardRepo: HazardRepository
 ) : ViewModel() {
 
     // Data asli dari server

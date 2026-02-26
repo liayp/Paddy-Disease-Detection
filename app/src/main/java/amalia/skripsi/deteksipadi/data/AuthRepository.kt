@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -18,15 +19,25 @@ import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
+import androidx.core.content.edit
 
 class AuthRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val WEB_CLIENT_ID = "212921453036-bt21jje8evthgbo89tlgsani8a6srl92.apps.googleusercontent.com"
 
+    private val prefs: SharedPreferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+
+    fun saveUserRole(role: String) {
+        prefs.edit { putString("saved_role", role) }
+    }
+
+    fun getSavedRole(): String {
+        return prefs.getString("saved_role", "petani") ?: "petani"
+    }
+
     suspend fun isUserLoggedIn(): Boolean {
         try {
-            // WAJIB: Tunggu Supabase memuat sesi dari penyimpanan HP (SharedPreferences)
             supabase.auth.awaitInitialization()
         } catch (e: Exception) {
             Log.e("AuthRepo", "Gagal inisialisasi sesi: ${e.message}")
@@ -34,7 +45,6 @@ class AuthRepository @Inject constructor(
         return supabase.auth.currentSessionOrNull() != null
     }
 
-    // Ambil Data Profil User (termasuk Role & WKPP)
     suspend fun getUserProfile(): UserProfile? {
         val userId = supabase.auth.currentUserOrNull()?.id ?: return null
         return try {
@@ -43,15 +53,12 @@ class AuthRepository @Inject constructor(
                     filter { eq("id", userId) }
                 }
                 .decodeSingle<UserProfile>()
-
         } catch (e: Exception) {
-            e.printStackTrace()
-            Log.e("UserProfileError", "Gagal ambil data: ${e.message}")
+            Log.e("UserProfileError", "Gagal ambil data (Mungkin Offline): ${e.message}")
             null
         }
     }
 
-    // Login Email & Password
     suspend fun loginEmail(email: String, pass: String): Result<String> {
         return try {
             supabase.auth.signInWith(Email) {
@@ -64,7 +71,6 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    // Register Email (Wajib Valid Email - Supabase otomatis kirim link konfirmasi)
     suspend fun registerEmail(email: String, pass: String, name: String, role: String): Result<String> {
         return try {
             supabase.auth.signUpWith(Email) {
@@ -72,7 +78,7 @@ class AuthRepository @Inject constructor(
                 this.password = pass
                 data = buildJsonObject {
                     put("full_name", name)
-                    put("role", role) // 'petani' atau 'popt'
+                    put("role", role)
                 }
             }
             Result.success("Registrasi Berhasil! Cek email untuk verifikasi.")
@@ -81,7 +87,6 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    // Google Sign-In (Modern Approach)
     suspend fun signInWithGoogle(): Result<String> {
         return try {
             val credentialManager = CredentialManager.create(context)
@@ -101,8 +106,6 @@ class AuthRepository @Inject constructor(
 
             if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data)
-
-                // Login ke Supabase pakai Token Google
                 supabase.auth.signInWith(IDToken) {
                     idToken = googleIdToken.idToken
                     provider = Google
@@ -111,18 +114,17 @@ class AuthRepository @Inject constructor(
             } else {
                 Result.failure(Exception("Gagal mendapatkan kredensial Google"))
             }
-        } catch (e: GetCredentialException) {
-            Log.e("GoogleLogin", "Error Credential: ${e.message}")
-            e.printStackTrace()
-            Result.failure(e)
         } catch (e: Exception) {
-            Log.e("GoogleLogin", "Error Umum: ${e.message}")
-            e.printStackTrace()
             Result.failure(e)
         }
     }
 
     suspend fun logout() {
-        supabase.auth.signOut()
+        try {
+            supabase.auth.signOut()
+        } catch (_: Exception) {
+            Log.e("AuthRepo", "Logout secara offline: Dihapus dari memori lokal saja.")
+        }
+        prefs.edit { clear() } // Hapus role lokal
     }
 }

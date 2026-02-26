@@ -2,6 +2,12 @@ package amalia.skripsi.deteksipadi.ui.screens.petani.history
 
 import amalia.skripsi.deteksipadi.data.HotspotDto
 import amalia.skripsi.deteksipadi.data.local.PendingReport
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
@@ -24,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -32,6 +40,47 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import java.io.File
 
+fun isOnline(context: Context): Boolean {
+    val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+    return capabilities != null && (
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            )
+}
+
+@Composable
+fun rememberNetworkConnectivityState(context: Context): State<Boolean> {
+    val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val isConnected = remember { mutableStateOf(isOnline(context)) }
+
+    DisposableEffect(connectivityManager) {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                isConnected.value = true
+            }
+            override fun onLost(network: Network) {
+                isConnected.value = false
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            connectivityManager.registerDefaultNetworkCallback(callback)
+        } else {
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            connectivityManager.registerNetworkCallback(request, callback)
+        }
+
+        onDispose {
+            connectivityManager.unregisterNetworkCallback(callback)
+        }
+    }
+    return isConnected
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HistoryScreen(
@@ -39,11 +88,20 @@ fun HistoryScreen(
     historyViewModel: HistoryViewModel,
     onNavigateToDetail: (HotspotDto) -> Unit
 ) {
+    val context = LocalContext.current
     val state by historyViewModel.uiState.collectAsState()
     val tabs = listOf("Selesai", "Proses", "Tertunda")
 
     val pagerState = rememberPagerState { tabs.size }
     val scope = rememberCoroutineScope()
+
+    val isConnected by rememberNetworkConnectivityState(context)
+
+    LaunchedEffect(isConnected) {
+        if (isConnected) {
+            historyViewModel.loadAllHistory()
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.primary,
@@ -88,10 +146,16 @@ fun HistoryScreen(
                     }
                 ) {
                     tabs.forEachIndexed { index, title ->
-                        val count = when (index) {
-                            0 -> state.finishedList.size
-                            1 -> state.processList.size
-                            else -> state.pendingList.size
+                        // Jika offline dan ini tab server (Selesai/Proses), tampilkan badge 0
+                        val isRemoteTab = (index == 0 || index == 1)
+                        val count = if (!isConnected && isRemoteTab) {
+                            0
+                        } else {
+                            when (index) {
+                                0 -> state.finishedList.size
+                                1 -> state.processList.size
+                                else -> state.pendingList.size
+                            }
                         }
 
                         Tab(
@@ -125,7 +189,18 @@ fun HistoryScreen(
                         else -> state.pendingList
                     }
 
+                    val isRemoteTab = (page == 0 || page == 1)
+                    val showOfflineAlert = !isConnected && isRemoteTab
+
+                    // --- PERBAIKAN LOGIKA RENDER (STRICT MODE) ---
                     when {
+                        // 1. PRIORITAS UTAMA: Sedang buka tab server TAPI tidak ada internet.
+                        // Langsung blokir tampilan datanya dan tunjukkan peringatan.
+                        showOfflineAlert -> {
+                            EmptyHistoryState(isOffline = true)
+                        }
+
+                        // 2. Jika sedang loading dari server
                         state.isLoading -> {
                             Box(
                                 Modifier.fillMaxSize(),
@@ -135,13 +210,16 @@ fun HistoryScreen(
                             }
                         }
 
+                        // 3. Jika internet ada tapi datanya memang kosong
                         currentItems.isEmpty() -> {
-                            EmptyHistoryState()
+                            EmptyHistoryState(isOffline = false)
                         }
 
+                        // 4. Kondisi normal (ada internet, ada data ATAU tab lokal tertunda)
                         else -> {
                             LazyColumn(
-                                contentPadding = PaddingValues(16.dp),
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 100.dp, start = 16.dp, end = 16.dp, top = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 items(currentItems) { item ->
@@ -220,7 +298,7 @@ fun HistoryReportCard(
         }
 
         status.lowercase() == "verified" -> {
-            val green = Color(0xFF2E7D32)
+            val green = MaterialTheme.colorScheme.primary
             green to green.copy(alpha = 0.1f)
         }
 
@@ -327,7 +405,7 @@ fun HistoryReportCard(
 }
 
 @Composable
-fun EmptyHistoryState() {
+fun EmptyHistoryState(isOffline: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -338,30 +416,37 @@ fun EmptyHistoryState() {
         Box(
             Modifier
                 .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     CircleShape
                 )
                 .padding(24.dp)
         ) {
             Icon(
-                Icons.Default.History,
-                null,
-                Modifier.size(48.dp),
-                Color.Gray
+                imageVector = if (isOffline) Icons.Default.Warning else Icons.Default.History,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = if (isOffline) MaterialTheme.colorScheme.error else Color.Gray
             )
         }
 
         Spacer(Modifier.height(16.dp))
 
         Text(
-            "Belum ada riwayat",
-            fontWeight = FontWeight.Bold
+            text = if (isOffline) "Koneksi Terputus" else "Belum ada riwayat",
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onBackground
         )
 
+        Spacer(Modifier.height(8.dp))
+
         Text(
-            "Semua laporan Anda akan tersimpan di sini",
+            text = if (isOffline) "Riwayat laporan akan tampil jika perangkat terhubung ke internet."
+            else "Semua laporan Anda akan tersimpan di sini",
             fontSize = 14.sp,
-            color = Color.Gray
+            color = Color.Gray,
+            textAlign = TextAlign.Center
         )
     }
 }

@@ -5,9 +5,14 @@ import amalia.skripsi.deteksipadi.data.fetchActiveHotspots
 import amalia.skripsi.deteksipadi.services.HazardDetectionService
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -43,6 +48,34 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.launch
 
+fun isOnlineMap(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val capabilities = cm.getNetworkCapabilities(cm.activeNetwork)
+    return capabilities != null && (
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            )
+}
+
+@Composable
+fun rememberMapConnectivityState(context: Context): State<Boolean> {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val isConnected = remember { mutableStateOf(isOnlineMap(context)) }
+
+    DisposableEffect(cm) {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { isConnected.value = true }
+            override fun onLost(network: Network) { isConnected.value = false }
+        }
+
+        cm.registerDefaultNetworkCallback(callback)
+
+        onDispose { cm.unregisterNetworkCallback(callback) }
+    }
+    return isConnected
+}
+
 @Composable
 fun PetaScreen(
     navController: NavController,
@@ -54,6 +87,9 @@ fun PetaScreen(
     val scope = rememberCoroutineScope()
 
     val isInDanger by petaViewModel.isDanger.collectAsState()
+
+    // DETEKSI JARINGAN REALTIME
+    val isOnline by rememberMapConnectivityState(context)
 
     // --- State UI ---
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
@@ -80,10 +116,15 @@ fun PetaScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted -> hasLocationPermission = isGranted }
 
-    LaunchedEffect(Unit) {
-        val list = fetchActiveHotspots()
-        petaViewModel.setInitialData(list)
+    // Fetch data hanya jika ONLINE
+    LaunchedEffect(isOnline) {
+        if (isOnline) {
+            val list = fetchActiveHotspots()
+            petaViewModel.setInitialData(list)
+        }
+    }
 
+    LaunchedEffect(Unit) {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             hasLocationPermission = true
         } else {
@@ -91,12 +132,10 @@ fun PetaScreen(
         }
     }
 
-    // Monitoring Lokasi (Setiap Lokasi atau Filter Berubah)
     LaunchedEffect(hasLocationPermission, petaViewModel.filteredHotspots) {
         if (hasLocationPermission) {
             val client = LocationServices.getFusedLocationProviderClient(context)
             try {
-                // Untuk hasil terbaik di produksi, gunakan requestLocationUpdates berkala
                 client.lastLocation.addOnSuccessListener { loc ->
                     if (loc != null) {
                         val newLatLng = LatLng(loc.latitude, loc.longitude)
@@ -134,6 +173,7 @@ fun PetaScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
@@ -145,31 +185,33 @@ fun PetaScreen(
             ),
             onMapClick = { selectedHotspot = null }
         ) {
-            petaViewModel.filteredHotspots.forEach { spot ->
-                val pos = LatLng(spot.lat, spot.lon)
-                Circle(
-                    center = pos,
-                    radius = 300.0,
-                    fillColor = Color(0x33FF0000),
-                    strokeColor = Color.Red,
-                    strokeWidth = 2f
-                )
-                Marker(
-                    state = MarkerState(position = pos),
-                    title = spot.ai_label,
-                    onClick = {
-                        selectedHotspot = spot
-                        true
-                    }
-                )
+            if (isOnline) {
+                petaViewModel.filteredHotspots.forEach { spot ->
+                    val pos = LatLng(spot.lat, spot.lon)
+                    Circle(
+                        center = pos,
+                        radius = 300.0,
+                        fillColor = Color(0x33FF0000),
+                        strokeColor = Color.Red,
+                        strokeWidth = 2f
+                    )
+                    Marker(
+                        state = MarkerState(position = pos),
+                        title = spot.ai_label,
+                        onClick = {
+                            selectedHotspot = spot
+                            true
+                        }
+                    )
+                }
             }
         }
 
 
         if (hasLocationPermission) {
-            // Status Pill (Sinkron dengan Home)
             StatusPill(
                 isInDanger = isInDanger,
+                isOffline = !isOnline,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 48.dp)
             )
 
@@ -194,11 +236,14 @@ fun PetaScreen(
                     }
                 }
 
-                // Filter Hama
+                // Filter Hama (Disable jika offline agar tidak crash)
                 SmallFloatingActionButton(
-                    onClick = { navController.navigate("filter_screen") },
-                    containerColor = Color.White,
-                    contentColor = Color(0xFF0078D4)
+                    onClick = {
+                        if (isOnline) navController.navigate("filter_screen")
+                        else Toast.makeText(context, "Sambungkan internet untuk memfilter", Toast.LENGTH_SHORT).show()
+                    },
+                    containerColor = if (isOnline) Color.White else Color.LightGray,
+                    contentColor = if (isOnline) Color(0xFF0078D4) else Color.DarkGray
                 ) {
                     Icon(Icons.Default.FilterList, "Filter")
                 }
@@ -226,9 +271,8 @@ fun PetaScreen(
             }
         }
 
-        // Tooltip Detail Card (Muncul saat marker diklik)
         AnimatedVisibility(
-            visible = selectedHotspot != null,
+            visible = selectedHotspot != null && isOnline,
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp, start = 16.dp, end = 16.dp)
@@ -283,28 +327,52 @@ fun PetaScreen(
 }
 
 @Composable
-fun StatusPill(isInDanger: Boolean, modifier: Modifier = Modifier) {
+fun StatusPill(isInDanger: Boolean, isOffline: Boolean, modifier: Modifier = Modifier) {
+    val bgColor = when {
+        isOffline -> Color(0xFFEEEEEE)
+        isInDanger -> Color(0xFFFFEBEE)
+        else -> Color(0xFFE8F5E9)
+    }
+
+    val contentColor = when {
+        isOffline -> Color.DarkGray
+        isInDanger -> Color.Red
+        else -> Color(0xFF2E7D32)
+    }
+
+    val icon = when {
+        isOffline -> Icons.Default.CloudOff
+        isInDanger -> Icons.Default.Warning
+        else -> Icons.Default.CheckCircle
+    }
+
+    val text = when {
+        isOffline -> "KONEKSI TERPUTUS"
+        isInDanger -> "ZONA BAHAYA!"
+        else -> "LOKASI AMAN"
+    }
+
     Surface(
         modifier = modifier.shadow(6.dp, CircleShape),
-        color = if (isInDanger) Color(0xFFFFEBEE) else Color(0xFFE8F5E9),
+        color = bgColor,
         shape = CircleShape,
-        border = if (isInDanger) androidx.compose.foundation.BorderStroke(1.dp, Color.Red) else null
+        border = if (isInDanger && !isOffline) androidx.compose.foundation.BorderStroke(1.dp, Color.Red) else null
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (isInDanger) Icons.Default.Warning else Icons.Default.CheckCircle,
+                imageVector = icon,
                 contentDescription = null,
-                tint = if (isInDanger) Color.Red else Color(0xFF2E7D32),
+                tint = contentColor,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = if (isInDanger) "ZONA BAHAYA!" else "LOKASI AMAN",
+                text = text,
                 fontWeight = FontWeight.Bold,
-                color = if (isInDanger) Color.Red else Color(0xFF2E7D32),
+                color = contentColor,
                 fontSize = 14.sp
             )
         }
