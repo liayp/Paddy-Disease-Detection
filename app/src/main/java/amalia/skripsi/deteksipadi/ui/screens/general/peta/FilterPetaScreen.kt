@@ -37,7 +37,7 @@ fun FilterPetaScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Filter Laporan", fontWeight = FontWeight.Bold) },
+                title = { Text("Filter Peta Sebaran", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, null)
@@ -74,7 +74,7 @@ fun FilterPetaScreen(
                 .background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())
         ) {
             // --- RENTANG WAKTU ---
-            Text("Rentang Waktu", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
+            Text("Rentang Waktu Laporan", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
             Column(modifier = Modifier.background(Color.Transparent)) {
                 timeOptions.forEach { option ->
                     Row(
@@ -97,12 +97,12 @@ fun FilterPetaScreen(
             Spacer(Modifier.height(16.dp))
 
             // --- LOKASI KECAMATAN ---
-            Text("Lokasi (Kecamatan)", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
+            Text("Pencarian Area (Kecamatan/Desa)", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
             OutlinedTextField(
                 value = viewModel.selectedKecamatan,
                 onValueChange = { viewModel.selectedKecamatan = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                placeholder = { Text("Ketik nama kecamatan...") },
+                placeholder = { Text("Ketik nama wilayah...") },
                 leadingIcon = { Icon(Icons.Default.LocationOn, null) },
                 shape = RoundedCornerShape(50),
                 colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
@@ -111,7 +111,7 @@ fun FilterPetaScreen(
             Spacer(Modifier.height(16.dp))
 
             // --- JENIS HAMA ---
-            Text("Jenis Hama", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
+            Text("Jenis Hama / Penyakit", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable { showHamaSheet = true },
                 shape = RoundedCornerShape(50),

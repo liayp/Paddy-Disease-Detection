@@ -4,6 +4,7 @@ bom = "3.2.6"
 coilCompose = "2.7.0"
 coreSplashscreen = "1.2.0"
 credentials = "1.5.0"
+datastorePreferences = "1.2.0"
 googleid = "1.2.0"
 gotrueKt = "2.6.1"
 gotrueKtVersion = "3.1.0"
@@ -49,6 +50,7 @@ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = 
 androidx-core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "coreSplashscreen" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
 androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastorePreferences" }
 androidx-room-compiler = { module = "androidx.room:room-compiler" }
 androidx-room-ktx = { module = "androidx.room:room-ktx" }
 androidx-room-runtime = { module = "androidx.room:room-runtime" }

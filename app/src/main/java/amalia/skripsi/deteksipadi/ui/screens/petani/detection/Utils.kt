@@ -34,7 +34,6 @@ object ImageUtils {
             val originalBmp = BitmapFactory.decodeStream(inputStream)
             inputStream?.close()
 
-            // Fix rotasi galeri
             val exifStream = contentResolver.openInputStream(uri)
             val exif = exifStream?.let { ExifInterface(it) }
             val rotation = when (exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
@@ -91,11 +90,9 @@ object ImageUtils {
 
 
     fun drawDetectionOnBitmap(originalBitmap: Bitmap, results: List<DetectionResult>): Bitmap {
-        // 1. Copy bitmap agar bisa diedit
         val mutableBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = android.graphics.Canvas(mutableBitmap)
 
-        // AMBIL UKURAN GAMBAR ASLI
         val imgWidth = mutableBitmap.width.toFloat()
         val imgHeight = mutableBitmap.height.toFloat()
 
@@ -117,9 +114,8 @@ object ImageUtils {
         }
 
         for (result in results) {
-            val box = result.box // Ini masih 0.0 - 1.0
+            val box = result.box
 
-            // --- PERBAIKAN UTAMA: KONVERSI KE PIKSEL ---
             val left = box.left * imgWidth
             val top = box.top * imgHeight
             val right = box.right * imgWidth
@@ -127,15 +123,12 @@ object ImageUtils {
 
             val pixelRect = android.graphics.RectF(left, top, right, bottom)
 
-            // Gambar Kotak menggunakan koordinat PIKSEL
             canvas.drawRect(pixelRect, boxPaint)
 
-            // Label
             val labelText = "${result.label} ${(result.score * 100).toInt()}%"
             val textWidth = textPaint.measureText(labelText)
             val textHeight = textPaint.textSize
 
-            // Gambar Background Teks
             canvas.drawRect(
                 left,
                 top - textHeight - 10f,
@@ -144,7 +137,6 @@ object ImageUtils {
                 textBgPaint
             )
 
-            // Gambar Teks
             canvas.drawText(labelText, left + 10f, top - 10f, textPaint)
         }
 
@@ -175,19 +167,16 @@ object ImageUtils {
 
     fun getGeoLocation(context: Context, uri: Uri): Pair<Double, Double>? {
         return try {
-            // 1. Coba dapatkan URI asli (Un-redacted)
             val photoUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     MediaStore.setRequireOriginal(uri)
                 } catch (_: Exception) {
-                    uri // Fallback jika bukan dari MediaStore
+                    uri
                 }
             } else {
                 uri
             }
 
-            // 2. SALIN KE TEMP FILE (Kunci agar terbaca di semua HP)
-            // Stream EXIF butuh akses file penuh, kadang InputStream saja gagal
             val inputStream = context.contentResolver.openInputStream(photoUri) ?: return null
             val tempFile = File(context.cacheDir, "temp_gps_check.jpg")
             val outputStream = FileOutputStream(tempFile)
@@ -196,13 +185,11 @@ object ImageUtils {
             inputStream.close()
             outputStream.close()
 
-            // 3. Baca EXIF dari File Temp
             val exif = ExifInterface(tempFile.absolutePath)
             val latLong = FloatArray(2)
 
             val hasLatLong = exif.getLatLong(latLong)
 
-            // Hapus file temp biar bersih
             tempFile.delete()
 
             if (hasLatLong) {

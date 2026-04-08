@@ -19,6 +19,7 @@ import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -63,18 +64,15 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
     val scope = rememberCoroutineScope()
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
-    // --- State UI ---
     val scaffoldState = rememberBottomSheetScaffoldState()
     val showCapturedImageState = remember { mutableStateOf(false) }
     val capturedBitmapState = remember { mutableStateOf<Bitmap?>(null) }
 
-    // --- State Data ---
     var detectionResults by remember { mutableStateOf<List<DetectionResult>>(emptyList()) }
     var reportLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var isUploading by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
 
-    // --- Tools ---
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val imageCapture = remember { ImageCapture.Builder().build() }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
@@ -137,7 +135,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
         }
     }
 
-    // --- FUNGSI CEK INTERNET DARI OLD CODE ---
     fun isOnline(context: Context): Boolean {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
@@ -148,7 +145,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                 )
     }
 
-    // --- RENDER UI ---
     if (arePermissionsGranted) {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
@@ -173,15 +169,15 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                             scope.launch(Dispatchers.IO) {
                                 val finalBitmap = ImageUtils.drawDetectionOnBitmap(rawBmp, detectionResults)
 
-                                // Konversi Gambar Berkotak ke Bytes
                                 val stream = ByteArrayOutputStream()
                                 finalBitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
                                 val photoBytes = stream.toByteArray()
                                 stream.close()
 
                                 val addressInfo = ImageUtils.getAddressName(context, loc.first, loc.second)
+                                // Format alamat lengkap sesuai EWS Database baru
+                                val alamatLengkapGabungan = "${addressInfo.third}, ${addressInfo.second}, Kec. ${addressInfo.first}"
 
-                                // --- JALUR ONLINE ---
                                 if (hasInternet) {
                                     withContext(Dispatchers.Main) { isUploading = true }
 
@@ -190,9 +186,8 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                                         results = detectionResults,
                                         lat = loc.first,
                                         lon = loc.second,
-                                        kecamatan = addressInfo.first,
-                                        kelurahan = addressInfo.second,
-                                        addressDetail = addressInfo.third,
+                                        alamatLengkap = alamatLengkapGabungan,
+                                        namaKecamatanDariGps = addressInfo.first,
                                         userId = userId
                                     )
 
@@ -200,19 +195,16 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                                         isUploading = false
                                         if (result.isSuccess) {
                                             showSuccessDialog = true
+                                            Log.d("UPLOAD", "SUCCESS")
                                         } else {
+                                            Log.e("UPLOAD", "FAILED: ${result.exceptionOrNull()}")
                                             Toast.makeText(context, "Gagal upload, simpan offline...", Toast.LENGTH_SHORT).show()
-                                            // Kalau gagal, simpan lokal gambar yg sudah berkotak
                                             saveToLocalAndQueue(context, finalBitmap, detectionResults, loc, addressInfo, userId)
                                             onReset()
                                         }
                                     }
-                                }
-                                // --- JALUR OFFLINE ---
-                                else {
-                                    // Simpan lokal gambar yg sudah berkotak
+                                } else {
                                     saveToLocalAndQueue(context, finalBitmap, detectionResults, loc, addressInfo, userId)
-
                                     withContext(Dispatchers.Main) {
                                         Toast.makeText(context, "Disimpan offline. Menunggu sinyal...", Toast.LENGTH_LONG).show()
                                         onReset()
@@ -224,12 +216,10 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                 )
             }
         ) { _ ->
-            // PERBAIKAN UI (Abaikan innerPadding agar kamera fix di tempat)
             Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     ScannerTopBar(navController, cameraExecutor)
 
-                    // Area Preview Kamera
                     Box(modifier = Modifier.weight(1f)) {
                         ScannerContent(
                             hasCameraPermission = remember { mutableStateOf(true) },
@@ -249,7 +239,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                         )
                     }
 
-                    // Spacer di bawah kamera
                     Box(modifier = Modifier.height(110.dp).fillMaxWidth()) {
                         if (!showCapturedImageState.value) {
                             ScannerBottomBar(onGalleryClick = {
@@ -260,7 +249,6 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                     }
                 }
 
-                // Tombol Capture (Floating)
                 if (!showCapturedImageState.value) {
                     Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 85.dp)) {
                         ScannerFab(
@@ -271,13 +259,12 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                     }
                 }
 
-                // Dialog Sukses
                 if (showSuccessDialog) {
                     AlertDialog(
                         onDismissRequest = { onReset() },
                         icon = { Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(48.dp)) },
-                        title = { Text("Laporan Terkirim!") },
-                        text = { Text("Data deteksi dan lokasi telah berhasil disimpan ke sistem.", textAlign = TextAlign.Center) },
+                        title = { Text("Peringatan Dini Terkirim!") },
+                        text = { Text("Data deteksi dan titik koordinat telah berhasil disiarkan ke sistem.", textAlign = TextAlign.Center) },
                         confirmButton = {
                             Button(
                                 onClick = {
@@ -307,25 +294,22 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
 
 suspend fun saveToLocalAndQueue(
     context: Context,
-    bmpWithBox: Bitmap, // Bitmap yang sudah ada kotaknya
+    bmpWithBox: Bitmap,
     results: List<DetectionResult>,
     loc: Pair<Double, Double>,
     addr: Triple<String, String, String>,
     userId: String
 ) {
-    // Simpan File Gambar (Yang sudah ada kotaknya)
     val fileName = "upload_${System.currentTimeMillis()}.jpg"
     val file = File(context.filesDir, fileName)
     val fileStream = FileOutputStream(file)
     bmpWithBox.compress(Bitmap.CompressFormat.JPEG, 70, fileStream)
     fileStream.close()
 
-    // Ambil data utama untuk DB Lokal
     val best = results.maxByOrNull { it.score }
     val label = best?.label ?: "Unknown"
     val score = best?.score ?: 0f
 
-    // Masukkan ke Room
     val db = Room.databaseBuilder(context, AppDatabase::class.java, "padi-database").build()
     val pendingReport = PendingReport(
         imagePath = file.absolutePath,

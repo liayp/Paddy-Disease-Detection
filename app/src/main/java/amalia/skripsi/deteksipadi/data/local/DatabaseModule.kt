@@ -20,7 +20,7 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "padi-database"
-        ).build()
+        ).fallbackToDestructiveMigration() .build()
     }
 
     @Provides

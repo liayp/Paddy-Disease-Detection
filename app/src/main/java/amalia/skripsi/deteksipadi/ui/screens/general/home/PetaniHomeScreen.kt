@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.home
 
 import amalia.skripsi.deteksipadi.ui.navigation.BottomNavItem
+import amalia.skripsi.deteksipadi.ui.navigation.navigateSingleTopTo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -18,7 +19,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import androidx.navigation.NavGraph.Companion.findStartDestination
 
 @Composable
 fun PetaniHomeScreen(
@@ -94,11 +94,8 @@ fun PetaniHomeScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             TextButton(onClick = {
-                navController.navigate(BottomNavItem.History.route) {
-                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
-                }
+                // REVISI: Pindah tab History dengan bersih
+                navController.navigateSingleTopTo(BottomNavItem.History.route)
             }) {
                 Text("Lihat Semua")
             }
@@ -112,20 +109,18 @@ fun PetaniHomeScreen(
             if (!isNetworkAvailable && !report.isFromLocal) {
                 EmptyStateCard(
                     onClick = { navController.navigate("scanner") },
-                    isOffline = true
+                    isOffline = true,
+                    customMessage = "Koneksi terputus. Riwayat pantauan terbaru Anda tidak dapat dimuat."
                 )
             } else {
                 LatestReportCard(
                     report = report,
                     onClick = {
                         if (report.isFromLocal) {
-                            android.widget.Toast.makeText(context, "Laporan ini sedang menunggu sinyal internet...", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, "Laporan ini tersimpan di memori dan menunggu sinyal internet untuk dikirim.", android.widget.Toast.LENGTH_SHORT).show()
                         } else {
-                            navController.navigate(BottomNavItem.History.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                            // REVISI: Klik card arahkan ke tab History
+                            navController.navigateSingleTopTo(BottomNavItem.History.route)
                         }
                     }
                 )
@@ -133,7 +128,8 @@ fun PetaniHomeScreen(
         } else {
             EmptyStateCard(
                 onClick = { navController.navigate("scanner") },
-                isOffline = false
+                isOffline = false,
+                customMessage = "Belum ada pantauan. Ayo mulai deteksi area sawah Anda sekarang!"
             )
         }
 

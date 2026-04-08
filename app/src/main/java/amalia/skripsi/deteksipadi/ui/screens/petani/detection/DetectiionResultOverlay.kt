@@ -24,14 +24,11 @@ fun DetectionOverlay(
         val screenW = size.width
         val screenH = size.height
 
-        // --- LOGIKA "FIT_CENTER" (Muat Semua) ---
-        // Cari skala TERKECIL agar gambar muat sepenuhnya
         val scaleX = screenW / sourceWidth.toFloat()
         val scaleY = screenH / sourceHeight.toFloat()
 
-        val scale = minOf(scaleX, scaleY) // Gunakan minOf untuk FIT
+        val scale = minOf(scaleX, scaleY)
 
-        // Hitung Margin/Offset (Area hitam)
         val offsetX = (screenW - (sourceWidth * scale)) / 2
         val offsetY = (screenH - (sourceHeight * scale)) / 2
 
@@ -44,9 +41,8 @@ fun DetectionOverlay(
         }
 
         results.forEach { det ->
-            val box = det.box // 0.0 - 1.0
+            val box = det.box
 
-            // Rumus: (Relatif * Asli * Zoom) + Margin
             val left = (box.left * sourceWidth * scale) + offsetX
             val top = (box.top * sourceHeight * scale) + offsetY
             val right = (box.right * sourceWidth * scale) + offsetX

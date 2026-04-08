@@ -1,6 +1,6 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.history
 
-import amalia.skripsi.deteksipadi.data.HotspotDto
+import amalia.skripsi.deteksipadi.data.LaporanDto
 import amalia.skripsi.deteksipadi.data.local.PendingReport
 import android.content.Context
 import android.net.ConnectivityManager
@@ -8,6 +8,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,43 +41,32 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import java.io.File
 
-fun isOnline(context: Context): Boolean {
-    val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-    return capabilities != null && (
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
-                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-            )
-}
-
 @Composable
-fun rememberNetworkConnectivityState(context: Context): State<Boolean> {
+fun rememberConnectivityState(context: Context): State<Boolean> {
     val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val isConnected = remember { mutableStateOf(isOnline(context)) }
+    val isConnected = remember { mutableStateOf(false) }
 
     DisposableEffect(connectivityManager) {
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                isConnected.value = true
-            }
-            override fun onLost(network: Network) {
-                isConnected.value = false
+            override fun onAvailable(network: Network) { isConnected.value = true }
+            override fun onLost(network: Network) { isConnected.value = false }
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                isConnected.value = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             connectivityManager.registerDefaultNetworkCallback(callback)
         } else {
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
+            val request = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
             connectivityManager.registerNetworkCallback(request, callback)
         }
 
-        onDispose {
-            connectivityManager.unregisterNetworkCallback(callback)
-        }
+        val activeNetwork = connectivityManager.activeNetwork
+        val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
+        isConnected.value = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+        onDispose { connectivityManager.unregisterNetworkCallback(callback) }
     }
     return isConnected
 }
@@ -86,91 +76,68 @@ fun rememberNetworkConnectivityState(context: Context): State<Boolean> {
 fun HistoryScreen(
     navController: NavController,
     historyViewModel: HistoryViewModel,
-    onNavigateToDetail: (HotspotDto) -> Unit
+    onNavigateToDetail: (LaporanDto) -> Unit
 ) {
     val context = LocalContext.current
     val state by historyViewModel.uiState.collectAsState()
-    val tabs = listOf("Selesai", "Proses", "Tertunda")
+    val isOnline by rememberConnectivityState(context)
 
-    val pagerState = rememberPagerState { tabs.size }
-    val scope = rememberCoroutineScope()
-
-    val isConnected by rememberNetworkConnectivityState(context)
-
-    LaunchedEffect(isConnected) {
-        if (isConnected) {
-            historyViewModel.loadAllHistory()
-        }
+    LaunchedEffect(isOnline) {
+        historyViewModel.loadHistory()
     }
+
+    val tabs = listOf("Tertunda", "Diproses", "Selesai")
+    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.primary,
         topBar = {
             CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        "Riwayat Laporan",
-                        fontWeight = FontWeight.Bold
-                    )
-                },
+                title = { Text("Riwayat Laporan", fontWeight = FontWeight.Bold) },
                 windowInsets = WindowInsets(0),
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
         }
     ) { padding ->
-
         Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding),
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
             color = MaterialTheme.colorScheme.background,
             tonalElevation = 2.dp
         ) {
-
             Column {
                 TabRow(
                     selectedTabIndex = pagerState.currentPage,
                     containerColor = Color.Transparent,
-                    divider = {},
                     indicator = { tabPositions ->
                         TabRowDefaults.SecondaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(
-                                tabPositions[pagerState.currentPage]
-                            ),
-                            height = 3.dp
+                            modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                            height = 3.dp,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 ) {
                     tabs.forEachIndexed { index, title ->
-                        // Jika offline dan ini tab server (Selesai/Proses), tampilkan badge 0
-                        val isRemoteTab = (index == 0 || index == 1)
-                        val count = if (!isConnected && isRemoteTab) {
-                            0
-                        } else {
-                            when (index) {
-                                0 -> state.finishedList.size
-                                1 -> state.processList.size
-                                else -> state.pendingList.size
-                            }
+                        val count = when (index) {
+                            0 -> state.pendingList.size
+                            1 -> if (isOnline) state.processList.size else 0
+                            2 -> if (isOnline) state.finishedList.size else 0
+                            else -> 0
                         }
 
                         Tab(
                             selected = pagerState.currentPage == index,
-                            onClick = {
-                                scope.launch {
-                                    pagerState.animateScrollToPage(index)
-                                }
-                            },
+                            onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(title, fontSize = 13.sp)
+                                    Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                                     if (count > 0) {
                                         Spacer(Modifier.width(6.dp))
-                                        Badge { Text(count.toString()) }
+                                        Badge(containerColor = MaterialTheme.colorScheme.error) { Text(count.toString()) }
                                     }
                                 }
                             }
@@ -180,70 +147,32 @@ fun HistoryScreen(
 
                 HorizontalPager(
                     state = pagerState,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.Top
                 ) { page ->
-
-                    val currentItems = when (page) {
-                        0 -> state.finishedList
-                        1 -> state.processList
-                        else -> state.pendingList
-                    }
-
-                    val isRemoteTab = (page == 0 || page == 1)
-                    val showOfflineAlert = !isConnected && isRemoteTab
-
-                    // --- PERBAIKAN LOGIKA RENDER (STRICT MODE) ---
-                    when {
-                        // 1. PRIORITAS UTAMA: Sedang buka tab server TAPI tidak ada internet.
-                        // Langsung blokir tampilan datanya dan tunjukkan peringatan.
-                        showOfflineAlert -> {
-                            EmptyHistoryState(isOffline = true)
-                        }
-
-                        // 2. Jika sedang loading dari server
-                        state.isLoading -> {
-                            Box(
-                                Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator()
+                    when (page) {
+                        0 -> {
+                            if (state.pendingList.isEmpty()) {
+                                EmptyHistoryState(isOffline = false)
+                            } else {
+                                LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 16.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    items(state.pendingList) { report -> PendingReportCard(report) }
+                                }
                             }
                         }
-
-                        // 3. Jika internet ada tapi datanya memang kosong
-                        currentItems.isEmpty() -> {
-                            EmptyHistoryState(isOffline = false)
-                        }
-
-                        // 4. Kondisi normal (ada internet, ada data ATAU tab lokal tertunda)
-                        else -> {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 100.dp, start = 16.dp, end = 16.dp, top = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(currentItems) { item ->
-                                    HistoryReportCard(
-                                        item = item,
-                                        onClick = {
-                                            if (item is RemoteReport) {
-                                                val hotspot = HotspotDto(
-                                                    id = item.id,
-                                                    ai_label = item.ai_label,
-                                                    confidence = item.confidence.toDouble(),
-                                                    status = item.status,
-                                                    lat = 0.0,
-                                                    lon = 0.0,
-                                                    image_url = item.image_url,
-                                                    created_at = item.created_at,
-                                                    kecamatan = item.kecamatan ?: "-",
-                                                    kelurahan = item.kelurahan ?: "-",
-                                                    address_detail = item.address_detail ?: "Detail tidak tersedia"
-                                                )
-                                                onNavigateToDetail(hotspot)
-                                            }
-                                        }
-                                    )
+                        1, 2 -> {
+                            if (!isOnline) {
+                                EmptyHistoryState(isOffline = true)
+                            } else if (state.isLoading) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                            } else {
+                                val list = if (page == 1) state.processList else state.finishedList
+                                if (list.isEmpty()) {
+                                    EmptyHistoryState(isOffline = false)
+                                } else {
+                                    LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 16.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        items(list) { report -> RemoteReportCard(report, onClick = { onNavigateToDetail(report) }) }
+                                    }
                                 }
                             }
                         }
@@ -254,151 +183,62 @@ fun HistoryScreen(
     }
 }
 
-
 @Composable
-fun HistoryReportCard(
-    item: Any,
-    onClick: () -> Unit
-) {
+fun RemoteReportCard(report: LaporanDto, onClick: () -> Unit) {
     val context = LocalContext.current
-
-    val imageUrl: Any
-    val label: String
-    val confidence: Float
-    val status: String
-    val time: String
-    val isFromLocal: Boolean
-
-    if (item is RemoteReport) {
-        imageUrl = item.image_url
-        label = item.ai_label
-        confidence = item.confidence
-        status = item.status
-        time = item.created_at.replace("T", " ").take(16)
-        isFromLocal = false
-    } else {
-        val pending = item as PendingReport
-        imageUrl = File(pending.imagePath)
-        label = pending.label
-        confidence = pending.confidence
-        status = "pending_local"
-        time = "Baru Saja"
-        isFromLocal = true
-    }
-
-    val (statusColor, containerColor) = when {
-        isFromLocal -> {
-            MaterialTheme.colorScheme.tertiary to
-                    MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.2f)
-        }
-
-        status.lowercase() == "pending" -> {
-            MaterialTheme.colorScheme.primary to
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-        }
-
-        status.lowercase() == "verified" -> {
-            val green = MaterialTheme.colorScheme.primary
-            green to green.copy(alpha = 0.1f)
-        }
-
-        else -> {
-            MaterialTheme.colorScheme.error to
-                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
-        }
-    }
-
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(70.dp)
-            ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(imageUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = ImageRequest.Builder(context).data(report.foto_url).crossfade(true).build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(70.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
+            )
             Spacer(Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        color = containerColor,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = if (isFromLocal) "TERTUNDA" else status.uppercase(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = statusColor,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(
-                                horizontal = 8.dp,
-                                vertical = 4.dp
-                            )
-                        )
+            Column(Modifier.weight(1f)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    val statusColor = when(report.status) {
+                        "ditolak" -> Color.Red
+                        "selesai", "terverifikasi" -> Color(0xFF388E3C)
+                        else -> Color(0xFFF57C00)
                     }
-
-                    Text(
-                        time,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text(report.status.replace("_", " ").uppercase(), style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.Bold)
+                    Text(report.created_at.take(10), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
-
-                Spacer(Modifier.height(8.dp))
-
-                Text(
-                    label,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
                 Spacer(Modifier.height(4.dp))
+                Text(report.label_ai, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(report.alamat_lengkap ?: "Lokasi tidak diketahui", style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 1)
+            }
+        }
+    }
+}
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(
-                        progress = confidence,
-                        modifier = Modifier
-                            .width(80.dp)
-                            .height(6.dp)
-                            .clip(CircleShape),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-
-                    Spacer(Modifier.width(8.dp))
-
-                    Text(
-                        "${(confidence * 100).toInt()}% Akurat",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
+@Composable
+fun PendingReportCard(report: PendingReport) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = File(report.imagePath),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(70.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text("MENUNGGU SINYAL", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(report.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(report.addressDetail, style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 1)
             }
         }
     }
@@ -406,47 +246,13 @@ fun HistoryReportCard(
 
 @Composable
 fun EmptyHistoryState(isOffline: Boolean) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            Modifier
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    CircleShape
-                )
-                .padding(24.dp)
-        ) {
-            Icon(
-                imageVector = if (isOffline) Icons.Default.Warning else Icons.Default.History,
-                contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = if (isOffline) MaterialTheme.colorScheme.error else Color.Gray
-            )
+    Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape).padding(24.dp)) {
+            Icon(imageVector = if (isOffline) Icons.Default.Warning else Icons.Default.History, contentDescription = null, modifier = Modifier.size(48.dp), tint = if (isOffline) MaterialTheme.colorScheme.error else Color.Gray)
         }
-
         Spacer(Modifier.height(16.dp))
-
-        Text(
-            text = if (isOffline) "Koneksi Terputus" else "Belum ada riwayat",
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-
+        Text(text = if (isOffline) "Koneksi Terputus" else "Belum ada riwayat", fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground)
         Spacer(Modifier.height(8.dp))
-
-        Text(
-            text = if (isOffline) "Riwayat laporan akan tampil jika perangkat terhubung ke internet."
-            else "Semua laporan Anda akan tersimpan di sini",
-            fontSize = 14.sp,
-            color = Color.Gray,
-            textAlign = TextAlign.Center
-        )
+        Text(text = if (isOffline) "Riwayat akan tampil saat terhubung ke internet." else "Laporan Anda akan tersimpan di sini.", fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
     }
 }

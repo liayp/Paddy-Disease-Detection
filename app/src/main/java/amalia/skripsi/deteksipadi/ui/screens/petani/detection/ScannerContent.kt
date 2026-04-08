@@ -53,7 +53,6 @@ fun ScannerContent(
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val previewView = remember { PreviewView(context) }
 
-    // State ukuran gambar asli untuk Overlay
     var sourceWidth by remember { mutableIntStateOf(1) }
     var sourceHeight by remember { mutableIntStateOf(1) }
 
@@ -85,13 +84,9 @@ fun ScannerContent(
                     if (bmp != null && detector != null) {
                         val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
                         val rotated = ImageUtils.rotateBitmap(bmp, rotation)
-
-                        // 1. KIRIM GAMBAR UTUH (Sama seperti Python)
-                        // Detector akan me-resize (gepengkan) sendiri secara internal
                         val results = detector.detect(rotated)
 
                         mainHandler.post {
-                            // Update ukuran asli untuk perhitungan Overlay
                             sourceWidth = rotated.width
                             sourceHeight = rotated.height
                             onRealtimeDetection(results)
@@ -113,14 +108,11 @@ fun ScannerContent(
     }
 
     Column(
-        modifier = modifier
-            .fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         if (hasCameraPermission.value) {
-
-            // UI KOTAK 3:4
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -131,7 +123,6 @@ fun ScannerContent(
                 contentAlignment = Alignment.Center
             ) {
                 if (!showCapturedImage.value && !isGalleryImageShown.value) {
-                    // Preview Live
                     AndroidView(
                         factory = {
                             previewView.apply {
@@ -148,14 +139,13 @@ fun ScannerContent(
                     )
 
                 } else {
-                    // Hasil Foto
                     val bmp = capturedBitmap.value ?: selectedGalleryBitmap.value
                     if (bmp != null) {
                         Image(
                             bitmap = bmp.asImageBitmap(),
                             contentDescription = "Captured",
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit // Fit juga biar konsisten
+                            contentScale = ContentScale.Fit
                         )
                         DetectionOverlay(
                             results = detectionResults,
@@ -165,7 +155,6 @@ fun ScannerContent(
                     }
                 }
 
-                // Close Button
                 if (showCapturedImage.value || isGalleryImageShown.value) {
                     IconButton(onClick = onClearImage, modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(0.5f), MaterialTheme.shapes.small)) {
                         Icon(Icons.Default.Close, "Close", tint = Color.White)

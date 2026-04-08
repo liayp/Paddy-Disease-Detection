@@ -32,17 +32,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import java.util.concurrent.ExecutorService
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,7 +75,6 @@ fun TopAppBarWithBackIcon(
                     }
                 }
             },
-            // Membuat background TopAppBar transparan agar gradient di Box terlihat
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = Color.Transparent
             ),
@@ -103,7 +99,6 @@ fun ScannerTopBar(
     )
 }
 
-
 @Composable
 fun ScannerBottomBar(
     onGalleryClick: () -> Unit
@@ -111,7 +106,7 @@ fun ScannerBottomBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding() // ini yang bikin UI naik dari nav bar
+            .navigationBarsPadding()
     ){
         BottomAppBar(
             modifier = Modifier

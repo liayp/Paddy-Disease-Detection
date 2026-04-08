@@ -1,8 +1,8 @@
 package amalia.skripsi.deteksipadi.ui.navigation
 
 import amalia.skripsi.deteksipadi.data.HazardRepository
-import amalia.skripsi.deteksipadi.data.HotspotDto
-import amalia.skripsi.deteksipadi.data.fetchActiveHotspots
+import amalia.skripsi.deteksipadi.data.LaporanDto
+import amalia.skripsi.deteksipadi.data.supabase
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.FilterPetaScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.PetaScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.PetaViewModel
@@ -10,11 +10,11 @@ import amalia.skripsi.deteksipadi.ui.screens.general.profile.ProfileScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.profile.ProfileViewModel
 import amalia.skripsi.deteksipadi.ui.screens.petani.detection.DetectionScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.history.HistoryScreen
-import amalia.skripsi.deteksipadi.ui.screens.petani.history.HistoryViewModel
 import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeViewModel
 import amalia.skripsi.deteksipadi.ui.screens.general.home.PetaniHomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.home.PoptHomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.notification.NotificationScreen
+import amalia.skripsi.deteksipadi.ui.screens.general.profile.EditProfileScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.report.PetaniReportDetailScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsViewModel
@@ -44,6 +44,9 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
+import kotlinx.coroutines.launch
 
 const val SCANNER_ROUTE = "scanner"
 
@@ -54,25 +57,39 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val hazardRepo: HazardRepository = hiltViewModel<PetaViewModel>().hazardRepo
 
+    // ViewModels initialization
+    val homeViewModel: HomeViewModel = hiltViewModel()
+    val petaViewModel: PetaViewModel = hiltViewModel()
+    val poptReportsViewModel: PoptReportsViewModel = hiltViewModel()
+    val profileViewModel: ProfileViewModel = hiltViewModel()
+
+    val hazardRepo: HazardRepository = petaViewModel.hazardRepo
+
+    // Global Geofence & Location Updates
     LaunchedEffect(Unit) {
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        var allHotspots: List<LaporanDto> = emptyList()
 
-        val allHotspots = try { fetchActiveHotspots() } catch(e: Exception) { emptyList() }
+        scope.launch {
+            try {
+                allHotspots = supabase.from("laporan")
+                    .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, created_at, alamat_lengkap, lat, lon")) {
+                        filter { neq("status", "ditolak") }
+                    }.decodeList<LaporanDto>()
+            } catch(e: Exception) {
+                android.util.Log.e("PETA_DEBUG", "FETCH FAILED: ${e.message}")
+            }
+        }
 
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000) // Cek tiap 5 detik
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
             .setMinUpdateDistanceMeters(10f)
             .build()
 
         val locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 val lastLocation = result.lastLocation ?: return
-                hazardRepo.updateLocation(
-                    lastLocation.latitude,
-                    lastLocation.longitude,
-                    allHotspots
-                )
+                hazardRepo.updateLocation(lastLocation.latitude, lastLocation.longitude, allHotspots)
             }
         }
 
@@ -80,11 +97,7 @@ fun MainScreen(
                 context, android.Manifest.permission.ACCESS_FINE_LOCATION
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
-                android.os.Looper.getMainLooper()
-            )
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, android.os.Looper.getMainLooper())
         }
     }
 
@@ -92,47 +105,50 @@ fun MainScreen(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    var selectedReport by remember { mutableStateOf<HotspotDto?>(null) }
+    var selectedReport by remember { mutableStateOf<LaporanDto?>(null) }
 
-    val homeViewModel: HomeViewModel = hiltViewModel()
-    val petaViewModel: PetaViewModel = hiltViewModel()
-    val poptReportsViewModel: PoptReportsViewModel = hiltViewModel()
-
+    // Dynamic Bottom Bar Items based on Role
     val bottomBarItems = remember(userRole) {
-        if (userRole == "popt") BottomNavItem.poptRoutes()
-        else BottomNavItem.petaniRoutes()
+        when (userRole) {
+            "popt" -> BottomNavItem.poptRoutes()
+            else -> BottomNavItem.petaniRoutes()
+        }
     }
 
-    val isMainTab = currentRoute in BottomNavItem.allRoutes()
+    // Define which routes should show the Bottom Navigation Bar
+    val validMainRoutes = listOf(
+        BottomNavItem.Home.route,
+        BottomNavItem.Peta.route,
+        BottomNavItem.Profile.route,
+        BottomNavItem.History.route,
+        BottomNavItem.Reports.route
+    )
+    val isMainTab = currentRoute in validMainRoutes
 
     RequestPermissionsAndStartService()
 
     Scaffold(
         bottomBar = {
             if (isMainTab) {
-                if (userRole == "petani") {
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.BottomCenter
-                    ) {
-                        BottomNavigationBar(
-                            navController = navController,
-                            items = bottomBarItems
-                        )
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    BottomNavigationBar(
+                        navController = navController,
+                        items = bottomBarItems
+                    )
 
+                    // Floating Scanner Button specifically for Petani
+                    if (userRole == "petani") {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .offset(y = (-28).dp)
                                 .size(56.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = CircleShape
-                                )
+                                .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
                                 .clickable {
-                                    navController.navigate(SCANNER_ROUTE) {
-                                        launchSingleTop = true
-                                    }
+                                    navController.navigate(SCANNER_ROUTE) { launchSingleTop = true }
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -144,22 +160,16 @@ fun MainScreen(
                             )
                         }
                     }
-                } else {
-                    BottomNavigationBar(
-                        navController = navController,
-                        items = bottomBarItems
-                    )
                 }
             }
         }
     ) { innerPadding ->
 
-        val contentModifier =
-            if (currentRoute == SCANNER_ROUTE || currentRoute == "filter_screen") {
-                Modifier
-            } else {
-                Modifier.padding(innerPadding)
-            }
+        val contentModifier = if (currentRoute == SCANNER_ROUTE || currentRoute == "filter_screen") {
+            Modifier
+        } else {
+            Modifier.padding(innerPadding)
+        }
 
         NavHost(
             navController = navController,
@@ -167,25 +177,12 @@ fun MainScreen(
             modifier = contentModifier
         ) {
 
+            // ================= GENERAL / SHARED =================
             composable(BottomNavItem.Home.route) {
-                if (userRole == "popt") {
-                    PoptHomeScreen(navController = navController, viewModel = homeViewModel)
-                } else {
-                    PetaniHomeScreen(navController = navController, viewModel = homeViewModel)
+                when (userRole) {
+                    "popt" -> PoptHomeScreen(navController = navController, viewModel = homeViewModel)
+                    else -> PetaniHomeScreen(navController = navController, viewModel = homeViewModel)
                 }
-            }
-
-            composable("notifications") {
-                NotificationScreen(navController = navController, viewModel = homeViewModel)
-            }
-
-            composable(BottomNavItem.Profile.route) {
-                val profileViewModel: ProfileViewModel = hiltViewModel()
-                ProfileScreen(
-                    profileViewModel = profileViewModel,
-                    navController = navController,
-                    onLogout = onLogout
-                )
             }
 
             composable(BottomNavItem.Peta.route) {
@@ -200,36 +197,51 @@ fun MainScreen(
                 )
             }
 
-            composable("filter_screen") {
-                FilterPetaScreen(
+            composable(BottomNavItem.Profile.route) {
+                val profileViewModel: ProfileViewModel = hiltViewModel()
+                ProfileScreen(
+                    profileViewModel = profileViewModel,
                     navController = navController,
-                    viewModel = petaViewModel
+                    onLogout = onLogout
+                )
+            }
+
+            composable("edit_profile") {
+                EditProfileScreen(
+                    navController = navController,
+                    profileViewModel = profileViewModel
+                )
+            }
+
+            composable("notifications") {
+                NotificationScreen(
+                    navController = navController,
+                    viewModel = homeViewModel,
+                    onNavigateToDetail = { report ->
+                        selectedReport = report
+                        navController.navigate(if (userRole == "popt") "report_detail" else "petani_report_detail")
+                    }
                 )
             }
 
             composable("report_detail") {
-                ReportDetailScreen(
-                    navController = navController,
-                    reportData = selectedReport
-                )
+                ReportDetailScreen(navController = navController, reportData = selectedReport)
             }
 
-            // ================= PETANI =================
-            if (userRole == "petani") {
+            composable("filter_screen") {
+                FilterPetaScreen(navController = navController, viewModel = petaViewModel)
+            }
 
+            // ================= PETANI SPECIFIC =================
+            if (userRole == "petani") {
                 composable(SCANNER_ROUTE) {
-                    val homeViewModel: HomeViewModel = hiltViewModel()
-                    DetectionScreen(
-                        navController = navController,
-                        homeViewModel = homeViewModel
-                    )
+                    DetectionScreen(navController = navController, homeViewModel = hiltViewModel())
                 }
 
                 composable(BottomNavItem.History.route) {
-                    val historyViewModel: HistoryViewModel = hiltViewModel()
                     HistoryScreen(
                         navController = navController,
-                        historyViewModel = historyViewModel,
+                        historyViewModel = hiltViewModel(),
                         onNavigateToDetail = {
                             selectedReport = it
                             navController.navigate("petani_report_detail")
@@ -238,16 +250,12 @@ fun MainScreen(
                 }
 
                 composable("petani_report_detail") {
-                    PetaniReportDetailScreen(
-                        navController = navController,
-                        reportData = selectedReport
-                    )
+                    PetaniReportDetailScreen(navController = navController, reportData = selectedReport)
                 }
             }
 
-            // ================= POPT =================
+            // ================= POPT SPECIFIC =================
             if (userRole == "popt") {
-
                 composable(BottomNavItem.Reports.route) {
                     PoptReportsScreen(
                         navController = navController,
@@ -260,10 +268,7 @@ fun MainScreen(
                 }
 
                 composable("report_preview") {
-                    ReportPreviewScreen(
-                        navController = navController,
-                        viewModel = poptReportsViewModel
-                    )
+                    ReportPreviewScreen(navController = navController, viewModel = poptReportsViewModel)
                 }
             }
         }

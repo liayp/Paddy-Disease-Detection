@@ -57,13 +57,13 @@ fun BottomNavigationBar(
 // Fungsi Navigasi Pintar (Agar tombol Home mereset stack)
 fun NavController.navigateSingleTopTo(route: String) {
     this.navigate(route) {
-        // Pop up sampai ke start destination (Home)
+        // Pop up ke start destination untuk menghindari penumpukan backstack
         popUpTo(this@navigateSingleTopTo.graph.findStartDestination().id) {
             saveState = true
         }
-        // Hindari duplikat
+        // Menghindari banyak salinan dari tujuan yang sama saat memilih item yang sama kembali
         launchSingleTop = true
-        // Restore state
+        // Memulihkan status saat memilih kembali item yang sebelumnya dipilih
         restoreState = true
     }
 }

@@ -1,6 +1,6 @@
 package amalia.skripsi.deteksipadi.ui.screens.popt.reports
 
-import amalia.skripsi.deteksipadi.data.HotspotDto
+import amalia.skripsi.deteksipadi.data.LaporanDto
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -33,11 +33,10 @@ import coil.request.ImageRequest
 import androidx.core.net.toUri
 
 @OptIn(ExperimentalMaterial3Api::class)
-
 @Composable
 fun ReportDetailScreen(
     navController: NavController,
-    reportData: HotspotDto?
+    reportData: LaporanDto?
 ) {
     val context = LocalContext.current
     if (reportData == null) {
@@ -49,7 +48,7 @@ fun ReportDetailScreen(
         Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Box(modifier = Modifier.fillMaxWidth().height(350.dp)) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context).data(reportData.image_url).crossfade(true).build(),
+                    model = ImageRequest.Builder(context).data(reportData.foto_url).crossfade(true).build(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -65,9 +64,10 @@ fun ReportDetailScreen(
                     AssistChip(
                         onClick = {},
                         label = { Text("AKURASI AI: $acc%", color = Color.White) },
-                        colors = AssistChipDefaults.assistChipColors(containerColor = if(acc > 70) Color(0xFF2E7D32) else Color.Red)
+                        colors = AssistChipDefaults.assistChipColors(containerColor = if(acc > 70) Color(0xFF2E7D32) else Color.Red),
+                        border = null
                     )
-                    Text(text = reportData.ai_label, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(text = reportData.label_ai, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
 
@@ -79,11 +79,11 @@ fun ReportDetailScreen(
                 Text("Validasi Laporan Lapangan", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(16.dp))
 
-                DetailItemRow(Icons.Default.Warning, "Hama Terdeteksi", reportData.ai_label, Color(0xFFD32F2F))
+                DetailItemRow(Icons.Default.Warning, "Hama Terdeteksi", reportData.label_ai, Color(0xFFD32F2F))
                 Spacer(modifier = Modifier.height(12.dp))
-                DetailItemRow(Icons.Default.LocationOn, "Kecamatan/Kelurahan", "Kec. ${reportData.kecamatan}, Kel. ${reportData.kelurahan}", Color(0xFF1976D2))
+                DetailItemRow(Icons.Default.LocationOn, "Lokasi Lapangan", reportData.alamat_lengkap ?: "-", Color(0xFF1976D2))
                 Spacer(modifier = Modifier.height(12.dp))
-                DetailItemRow(Icons.Default.Person, "ID Pelapor (User)", reportData.user_id?.take(8) ?: "-", Color(0xFF388E3C))
+                DetailItemRow(Icons.Default.Person, "ID Pelapor (Petani)", reportData.petani_id!!.take(8), Color(0xFF388E3C))
                 Spacer(modifier = Modifier.height(12.dp))
                 DetailItemRow(Icons.Default.CalendarToday, "Waktu Lapor", reportData.created_at.replace("T", " ").take(16), Color(0xFFF57C00))
 
@@ -110,8 +110,11 @@ fun ReportDetailScreen(
 
                 OutlinedButton(
                     onClick = {
+                        // Menggunakan reportData.lat dan reportData.lon langsung
                         val gmmIntentUri = "google.navigation:q=${reportData.lat},${reportData.lon}".toUri()
-                        val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply { setPackage("com.google.android.apps.maps") }
+                        val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply {
+                            setPackage("com.google.android.apps.maps")
+                        }
                         context.startActivity(mapIntent)
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -127,7 +130,6 @@ fun ReportDetailScreen(
     }
 }
 
-// Komponen Baris Info yang Cantik
 @Composable
 fun DetailItemRow(icon: ImageVector, label: String, value: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {

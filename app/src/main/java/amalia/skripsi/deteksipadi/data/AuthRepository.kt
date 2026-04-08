@@ -6,7 +6,6 @@ import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
-import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -20,12 +19,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
 import androidx.core.content.edit
+import io.github.jan.supabase.postgrest.from
+import kotlinx.coroutines.delay
 
 class AuthRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val WEB_CLIENT_ID = "212921453036-bt21jje8evthgbo89tlgsani8a6srl92.apps.googleusercontent.com"
-
     private val prefs: SharedPreferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
 
     fun saveUserRole(role: String) {
@@ -46,16 +46,120 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun getUserProfile(): UserProfile? {
-        val userId = supabase.auth.currentUserOrNull()?.id ?: return null
-        return try {
-            supabase.postgrest.from("profiles")
-                .select(columns = Columns.ALL) {
-                    filter { eq("id", userId) }
+        val user = supabase.auth.currentUserOrNull() ?: return null
+        val userEmail = user.email
+
+        try {
+            delay(500)
+
+            var profileDto = supabase.from("profiles")
+                .select()
+                .decodeList<ProfileDto>()
+                .firstOrNull { it.id == user.id }
+
+            if (profileDto == null && userEmail != null) {
+                val profileByEmail = supabase.from("profiles")
+                    .select()
+                    .decodeList<ProfileDto>()
+                    .firstOrNull { it.email?.lowercase() == userEmail.lowercase() }
+
+                if (profileByEmail != null) {
+                    try {
+                        supabase.from("profiles").update(
+                            buildJsonObject { put("id", user.id) }
+                        ) {
+                            filter { eq("email", userEmail) }
+                        }
+                        profileDto = profileByEmail.copy(id = user.id)
+                    } catch (eUpdate: Exception) {
+                        profileDto = profileByEmail
+                    }
                 }
-                .decodeSingle<UserProfile>()
+            }
+
+            if (profileDto == null) {
+                val newProfile = ProfileDto(
+                    id = user.id,
+                    full_name = user.userMetadata?.get("full_name")?.toString() ?: "User Baru",
+                    email = userEmail,
+                    role = user.userMetadata?.get("role")?.toString() ?: "petani"
+                )
+
+                try {
+                    supabase.from("profiles").insert(newProfile)
+                    profileDto = newProfile
+                } catch (eInsert: Exception) {
+                    Log.e("AuthRepo", "Gagal auto-insert profile: ${eInsert.message}")
+                }
+            }
+
+            var wkppList: List<String>? = null
+            if (profileDto?.role == "popt") {
+                try {
+                    val wilayahResponse = supabase.from("popt_wilayah")
+                        .select(columns = Columns.raw("kecamatan(nama_kecamatan)")) {
+                            filter { eq("popt_id", user.id) }
+                        }.decodeList<PoptWilayahDto>()
+
+                    wkppList = wilayahResponse.mapNotNull { it.kecamatan?.nama_kecamatan }
+                } catch (eRel: Exception) {
+                    Log.e("AuthRepo", "Error query wilayah POPT: ${eRel.message}")
+                }
+            }
+
+            return UserProfile(
+                id = profileDto?.id ?: user.id,
+                email = userEmail,
+                full_name = profileDto?.full_name,
+                avatar_url = profileDto?.avatar_url,
+                role = profileDto?.role ?: "petani",
+                phone_number = profileDto?.phone_number,
+                alamat = profileDto?.alamat,
+                nip = profileDto?.nip,
+                wkpp_kecamatan = wkppList
+            )
+
         } catch (e: Exception) {
-            Log.e("UserProfileError", "Gagal ambil data (Mungkin Offline): ${e.message}")
-            null
+            Log.e("UserProfileError", "Crash: ${e.message}")
+            return UserProfile(
+                id = user.id,
+                email = userEmail,
+                full_name = "User",
+                avatar_url = null,
+                role = "petani",
+                wkpp_kecamatan = null
+            )
+        }
+    }
+
+    suspend fun updateProfile(fullName: String, phoneNumber: String, alamat: String): Boolean {
+        return try {
+            val user = supabase.auth.currentUserOrNull() ?: return false
+            supabase.from("profiles").update(
+                buildJsonObject {
+                    put("full_name", fullName)
+                    put("phone_number", phoneNumber)
+                    put("alamat", alamat)
+                }
+            ) {
+                filter { eq("id", user.id) }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("AuthRepo", "Update Profile Error: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun updatePassword(newPass: String): Boolean {
+        return try {
+            supabase.auth.updateUser {
+                password = newPass
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("AuthRepo", "Update Password Error: ${e.message}")
+            false
         }
     }
 
@@ -81,7 +185,7 @@ class AuthRepository @Inject constructor(
                     put("role", role)
                 }
             }
-            Result.success("Registrasi Berhasil! Cek email untuk verifikasi.")
+            Result.success("Registrasi Berhasil! Silakan Login.")
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -90,7 +194,6 @@ class AuthRepository @Inject constructor(
     suspend fun signInWithGoogle(): Result<String> {
         return try {
             val credentialManager = CredentialManager.create(context)
-
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
                 .setServerClientId(WEB_CLIENT_ID)
@@ -106,6 +209,7 @@ class AuthRepository @Inject constructor(
 
             if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data)
+
                 supabase.auth.signInWith(IDToken) {
                     idToken = googleIdToken.idToken
                     provider = Google
@@ -122,9 +226,7 @@ class AuthRepository @Inject constructor(
     suspend fun logout() {
         try {
             supabase.auth.signOut()
-        } catch (_: Exception) {
-            Log.e("AuthRepo", "Logout secara offline: Dihapus dari memori lokal saja.")
-        }
-        prefs.edit { clear() } // Hapus role lokal
+        } catch (_: Exception) {}
+        prefs.edit { clear() }
     }
 }

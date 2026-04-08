@@ -1,12 +1,7 @@
 package amalia.skripsi.deteksipadi.services
 
 import amalia.skripsi.deteksipadi.MainActivity
-import amalia.skripsi.deteksipadi.data.AuthRepository
-import amalia.skripsi.deteksipadi.data.HazardRepository
-import amalia.skripsi.deteksipadi.data.HotspotDto
-import amalia.skripsi.deteksipadi.data.UserProfile
-import amalia.skripsi.deteksipadi.data.fetchActiveHotspots
-import amalia.skripsi.deteksipadi.data.supabase
+import amalia.skripsi.deteksipadi.data.*
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils
 import amalia.skripsi.deteksipadi.util.NotificationHelper
 import android.app.PendingIntent
@@ -20,6 +15,8 @@ import android.util.Log
 import androidx.core.app.ServiceCompat
 import com.google.android.gms.location.*
 import dagger.hilt.android.AndroidEntryPoint
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
@@ -40,7 +37,8 @@ class HazardDetectionService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
 
-    private var hotspots: List<HotspotDto> = emptyList()
+    // SEKARANG MENGGUNAKAN LaporanDto
+    private var hotspots: List<LaporanDto> = emptyList()
     private var userProfile: UserProfile? = null
     private var realtimeChannel: RealtimeChannel? = null
 
@@ -62,8 +60,9 @@ class HazardDetectionService : Service() {
                 val authRepo = AuthRepository(this@HazardDetectionService)
                 userProfile = authRepo.getUserProfile()
 
+                // Ambil data laporan aktif untuk Geofencing Petani
                 if (userProfile?.role != "popt") {
-                    hotspots = fetchActiveHotspots()
+                    refreshHotspots()
                 }
 
                 if (userProfile?.role == "popt") {
@@ -79,11 +78,24 @@ class HazardDetectionService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 if (userProfile?.role != "popt") {
-                    for (location in result.locations) {
+                    result.lastLocation?.let { location ->
                         checkGeofenceForFarmer(location.latitude, location.longitude)
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun refreshHotspots() {
+        try {
+            // Ambil data dengan kolom lat & lon terbaru
+            hotspots = supabase.from("laporan").select(
+                columns = Columns.raw("id, label_ai, status, prioritas, lat, lon, created_at")
+            ) {
+                filter { neq("status", "ditolak") }
+            }.decodeList<LaporanDto>()
+        } catch (e: Exception) {
+            Log.e("HazardService", "Fetch hotspots failed: ${e.message}")
         }
     }
 
@@ -97,7 +109,7 @@ class HazardDetectionService : Service() {
         val notification = NotificationHelper.buildNotification(
             context = this,
             title = "Sistem Deteksi Padi Aktif",
-            message = "Memantau lokasi di latar belakang...",
+            message = "Memantau radius ancaman hama...",
             channelId = CHANNEL_ID_SERVICE,
             channelName = "Service Berjalan",
             intent = pendingIntent,
@@ -115,20 +127,18 @@ class HazardDetectionService : Service() {
 
     private suspend fun setupPoptRealtimeListener() {
         try {
-            realtimeChannel = supabase.realtime.channel("public-reports-popt")
+            realtimeChannel = supabase.realtime.channel("laporan-popt-realtime")
             val changeFlow = realtimeChannel!!.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
-                table = "reports"
+                table = "laporan"
             }
             realtimeChannel!!.subscribe()
             changeFlow.collect { action ->
                 val record = action.record
-                val incomingDistrict = record["district"]?.jsonPrimitive?.contentOrNull
-                val myWkpp = userProfile?.wkpp_kecamatan ?: emptyList()
-                val isRelevant = myWkpp.any { it.equals(incomingDistrict, ignoreCase = true) }
-                if (isRelevant) {
-                    val label = record["ai_label"]?.jsonPrimitive?.contentOrNull ?: "Hama"
-                    sendTargetedNotification(label, incomingDistrict ?: "-")
-                }
+                val label = record["label_ai"]?.jsonPrimitive?.contentOrNull ?: "Hama"
+                val prioritas = record["prioritas"]?.jsonPrimitive?.contentOrNull ?: "rendah"
+                val alamat = record["alamat_lengkap"]?.jsonPrimitive?.contentOrNull ?: "Lokasi Baru"
+
+                sendTargetedNotification(label, alamat, prioritas)
             }
         } catch (e: Exception) { Log.e("Hazard", e.message.toString()) }
     }
@@ -137,25 +147,33 @@ class HazardDetectionService : Service() {
         if (hotspots.isEmpty()) return
 
         var minDistance = Double.MAX_VALUE
+        var closestPrioritas = "rendah"
+
         for (spot in hotspots) {
+            // Langsung akses spot.lat dan spot.lon (LaporanDto)
             val dist = LocationUtils.calculateDistance(userLat, userLon, spot.lat, spot.lon)
-            if (dist < minDistance) minDistance = dist
+            if (dist < minDistance) {
+                minDistance = dist
+                closestPrioritas = spot.prioritas ?: "rendah"
+            }
         }
 
         val isDanger = minDistance <= 300.0
         hazardRepository.setDangerStatus(isDanger, minDistance)
 
+        // Logika Peringatan
         when {
-            minDistance <= 20.0 -> {
+            minDistance <= 50.0 -> {
                 if (!isDangerNotified) {
-                    sendAlertNotification("BAHAYA! HAMA SANGAT DEKAT!", "Jarak: ${minDistance.toInt()}m.", true)
+                    val bahaya = if(closestPrioritas == "tinggi") "ZONA CLUSTER TINGGI!" else "HAMA SANGAT DEKAT!"
+                    sendAlertNotification("BAHAYA! $bahaya", "Jarak: ${minDistance.toInt()}m.", true)
                     isDangerNotified = true
                     isWarningNotified = true
                 }
             }
             minDistance <= 300.0 -> {
                 if (!isWarningNotified) {
-                    sendAlertNotification("Memasuki Area Waspada", "Hama dalam radius 300m.", false)
+                    sendAlertNotification("Memasuki Area Waspada", "Terdeteksi hama dalam radius 300m.", false)
                     isWarningNotified = true
                     isDangerNotified = false
                 }
@@ -167,14 +185,15 @@ class HazardDetectionService : Service() {
         }
     }
 
-    private fun sendTargetedNotification(label: String, district: String) {
+    private fun sendTargetedNotification(label: String, lokasi: String, prioritas: String) {
         val intent = Intent(this, MainActivity::class.java).apply { putExtra("navigate_to", "popt_reports") }
         val pIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        NotificationHelper.showNotification(this, "Laporan Baru: $label", "Di $district", CHANNEL_ID_ALERT, "Alert", pIntent, true)
+        val title = if(prioritas == "tinggi") "🚨 Laporan Cluster Baru: $label" else "Laporan Baru: $label"
+        NotificationHelper.showNotification(this, title, lokasi, CHANNEL_ID_ALERT, "Alert", pIntent, prioritas == "tinggi")
     }
 
     private fun sendAlertNotification(title: String, msg: String, urgent: Boolean) {
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = Intent(this, MainActivity::class.java).apply { putExtra("navigate_to", "peta") }
         val pIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
         NotificationHelper.showNotification(this, title, msg, CHANNEL_ID_ALERT, "Alert", pIntent, urgent)
     }

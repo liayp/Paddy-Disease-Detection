@@ -1,10 +1,10 @@
 package amalia.skripsi.deteksipadi.data
 
-import android.location.Location
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
+import amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils
 
 @Singleton
 class HazardRepository @Inject constructor() {
@@ -14,15 +14,18 @@ class HazardRepository @Inject constructor() {
     private val _currentDistance = MutableStateFlow(0.0)
     val currentDistance = _currentDistance.asStateFlow()
 
-    // Fungsi pusat untuk menghitung bahaya
-    fun updateLocation(userLat: Double, userLon: Double, hotspots: List<HotspotDto>) {
+    fun updateLocation(userLat: Double, userLon: Double, hotspots: List<LaporanDto>) {
+        if (hotspots.isEmpty()) {
+            _isDanger.value = false
+            _currentDistance.value = 0.0
+            return
+        }
+
         var minDistance = Double.MAX_VALUE
         var dangerDetected = false
 
         for (spot in hotspots) {
-            val results = FloatArray(1)
-            Location.distanceBetween(userLat, userLon, spot.lat, spot.lon, results)
-            val distance = results[0].toDouble()
+            val distance = LocationUtils.calculateDistance(userLat, userLon, spot.lat, spot.lon)
 
             if (distance < minDistance) {
                 minDistance = distance
@@ -34,12 +37,11 @@ class HazardRepository @Inject constructor() {
         }
 
         _isDanger.value = dangerDetected
-        _currentDistance.value = if (hotspots.isEmpty()) 0.0 else minDistance
+        _currentDistance.value = minDistance
     }
 
-    // Tetap sediakan ini untuk diupdate oleh Background Service jika perlu
-    fun setDangerStatus(isDanger: Boolean, distance: Double) {
-        _isDanger.value = isDanger
+    fun setDangerStatus(danger: Boolean, distance: Double) {
+        _isDanger.value = danger
         _currentDistance.value = distance
     }
 }

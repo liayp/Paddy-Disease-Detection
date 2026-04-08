@@ -16,11 +16,12 @@ data class PendingReport(
     val confidence: Float,
     val lat: Double,
     val lon: Double,
+    val kecamatanId: String? = null,   // lebih penting
     val kecamatan: String,
     val kelurahan: String,
     val addressDetail: String,
     val createdAt: Long = System.currentTimeMillis(),
-    val userId: String,
+    val userId: String
 )
 
 @Dao
@@ -35,7 +36,7 @@ interface PendingReportDao {
     suspend fun deleteReport(id: Int)
 }
 
-@Database(entities = [PendingReport::class], version = 1)
+@Database(entities = [PendingReport::class], version = 2)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun pendingReportDao(): PendingReportDao
 }

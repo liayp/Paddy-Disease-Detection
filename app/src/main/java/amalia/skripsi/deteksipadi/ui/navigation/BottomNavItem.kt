@@ -1,16 +1,8 @@
 package amalia.skripsi.deteksipadi.ui.navigation
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Assignment
-import androidx.compose.material.icons.automirrored.outlined.Assignment
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.outlined.DateRange
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class BottomNavItem(
@@ -19,53 +11,14 @@ sealed class BottomNavItem(
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
-    data object Home : BottomNavItem(
-        route = "home",
-        title = "Beranda",
-        selectedIcon = Icons.Filled.Home,
-        unselectedIcon = Icons.Outlined.Home
-    )
-
-    data object Peta : BottomNavItem(
-        route = "peta",
-        title = "Peta",
-        selectedIcon = Icons.Filled.LocationOn,
-        unselectedIcon = Icons.Outlined.LocationOn
-    )
-
-    data object Profile : BottomNavItem(
-        route = "profile",
-        title = "Akun",
-        selectedIcon = Icons.Filled.Person,
-        unselectedIcon = Icons.Outlined.Person
-    )
-
-    data object History : BottomNavItem(
-        route = "history",
-        title = "Riwayat",
-        selectedIcon = Icons.Filled.DateRange,
-        unselectedIcon = Icons.Outlined.DateRange
-    )
-
-    // Menu REPORTS (Khusus POPT)
-    data object Reports : BottomNavItem(
-        route = "popt_reports", // Route harus unik
-        title = "Laporan",
-        selectedIcon = Icons.AutoMirrored.Filled.Assignment,
-        unselectedIcon = Icons.AutoMirrored.Outlined.Assignment
-    )
+    object Home : BottomNavItem("home", "Home", Icons.Filled.Home, Icons.Outlined.Home)
+    object Peta : BottomNavItem("peta", "Radar", Icons.Filled.Map, Icons.Outlined.Map)
+    object Reports : BottomNavItem("popt_reports", "Validasi", Icons.Filled.Assignment, Icons.Outlined.Assignment)
+    object History : BottomNavItem("history", "Riwayat", Icons.Filled.History, Icons.Outlined.History)
+    object Profile : BottomNavItem("profile", "Profil", Icons.Filled.Person, Icons.Outlined.Person)
 
     companion object {
-        fun petaniRoutes(): List<BottomNavItem> {
-            return listOf(Home, Peta, History, Profile)
-        }
-
-        fun poptRoutes(): List<BottomNavItem> {
-            return listOf(Home, Reports, Peta, Profile)
-        }
-
-        fun allRoutes(): List<String> {
-            return listOf(Home.route, History.route, Peta.route, Profile.route, Reports.route)
-        }
+        fun petaniRoutes() = listOf(Home, Peta, History, Profile)
+        fun poptRoutes() = listOf(Home, Peta, Reports, Profile)
     }
 }

@@ -5,7 +5,6 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import android.os.Build
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -116,15 +115,16 @@ fun HeroStatusCard(isDanger: Boolean, distance: Double, isOffline: Boolean) {
     val icon = if (isOffline || isDanger) Icons.Default.Warning else Icons.Default.Security
     val title = when {
         isOffline -> "KONEKSI TERPUTUS"
-        isDanger -> "WASPADA WILAYAH"
-        else -> "Sistem Aktif Memantau"
+        isDanger -> "PERINGATAN DINI: WASPADA"
+        else -> "Wilayah Pantauan Aman"
     }
 
+    // Teks diubah agar mendukung narasi Peringatan Dini Berbasis Geofence/Jarak
     val subtitle = when {
-        isOffline -> "Pantauan lokasi realtime dijeda. Harap sambungkan ke internet."
-        isDanger && distance < 10.0 -> "Hama terdeteksi ${distance.toInt()} meter di dekat Anda!" // Untuk Petani
-        isDanger && distance >= 10.0 -> "Ada ${distance.toInt()} laporan baru yang perlu segera diverifikasi." // Untuk POPT
-        else -> "Wilayah Anda terpantau aman."
+        isOffline -> "Pantauan geofencing realtime dijeda. Harap sambungkan ke internet."
+        isDanger && distance < 10.0 -> "Peringatan! Hama terdeteksi dalam radius ${distance.toInt()} meter!" // Petani
+        isDanger && distance >= 10.0 -> "Terdapat ${distance.toInt()} laporan cluster / masuk yang perlu verifikasi." // POPT
+        else -> "Tidak ada deteksi ancaman hama di sekitar area."
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "radar")
@@ -155,7 +155,7 @@ fun HeroStatusCard(isDanger: Boolean, distance: Double, isOffline: Boolean) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (isOffline) "Sistem offline" else "Pantauan lokasi realtime aktif", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
+                    Text(if (isOffline) "Sistem offline" else "Early Warning System Aktif", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
                 }
             }
         }
@@ -180,13 +180,16 @@ fun StatCard(icon: ImageVector, count: String, label: String, iconBgColor: Color
 fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
     val context = LocalContext.current
 
-    // Penentuan warna status berdasarkan isi laporan
+    // Pewarnaan status baru menyesuaikan enum database
     val statusColor = when {
         report.isFromLocal -> Color(0xFFF57C00)
-        report.status.lowercase() == "pending" -> Color(0xFFF57C00)
-        report.status.lowercase() == "verified" -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.error
+        report.status == "menunggu_verifikasi" -> Color(0xFFF57C00)
+        report.status == "perlu_kunjungan" -> Color(0xFF7B1FA2) // Warna ungu untuk visit
+        report.status == "terverifikasi" || report.status == "selesai" -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.error // ditolak
     }
+
+    val displayStatus = if(report.isFromLocal) "MENUNGGU UPLOAD" else report.status.replace("_", " ").uppercase()
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
@@ -208,13 +211,13 @@ fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
 
                     Surface(
-                        color = statusColor.copy(alpha = 0.1f), // Warna sama tapi transparan 10%
+                        color = statusColor.copy(alpha = 0.1f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = if(report.isFromLocal) "MENUNGGU UPLOAD" else report.status.uppercase(),
+                            text = displayStatus,
                             style = MaterialTheme.typography.labelSmall,
-                            color = statusColor, // Teks warna pekat/solid
+                            color = statusColor,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
@@ -246,7 +249,7 @@ fun EmptyStateCard(onClick: () -> Unit, isOffline: Boolean = false) {
         Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             Icon(if (isOffline) Icons.Default.Warning else Icons.Default.CameraAlt, null, tint = if (isOffline) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.width(12.dp))
-            Text(text = if (isOffline) "Koneksi terputus. Riwayat terbaru tidak dapat ditampilkan." else "Belum ada laporan. Ayo scan sekarang!", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(text = if (isOffline) "Koneksi terputus. Riwayat terbaru tidak dapat ditampilkan." else "Belum ada pantauan. Ayo deteksi area Anda!", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

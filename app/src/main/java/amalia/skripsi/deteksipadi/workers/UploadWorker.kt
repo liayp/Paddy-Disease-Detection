@@ -36,7 +36,7 @@ class UploadWorker(
         NotificationHelper.showNotification(
             context = applicationContext,
             title = "Laporan Terkirim! ✅",
-            message = "Deteksi '$hamaLabel' berhasil diupload ke sistem.",
+            message = "Deteksi '$hamaLabel' berhasil diupload ke sistem peringatan dini.",
             channelId = "upload_channel",
             channelName = "Laporan Terkirim",
             intent = pendingIntent
@@ -78,12 +78,16 @@ class UploadWorker(
                     var finalKel = report.kelurahan
                     var finalAddr = report.addressDetail
 
-                    if (finalKec.contains("Tidak", true)) {
+                    // Fallback Reverse Geocoding jika lokasi belum valid
+                    if (finalKec.isBlank() || finalKec.contains("Tidak", true)) {
                         val addressInfo = ImageUtils.getAddressName(context, report.lat, report.lon)
                         finalKec = addressInfo.first
                         finalKel = addressInfo.second
                         finalAddr = addressInfo.third
                     }
+
+                    // Merakit string Alamat Lengkap sesuai skema DB baru
+                    val alamatLengkapGabungan = "$finalAddr, $finalKel, Kec. $finalKec"
 
                     Log.d("UploadWorker", "Upload ID: ${report.id} User: ${report.userId}")
 
@@ -99,23 +103,21 @@ class UploadWorker(
                         results = listOf(dummyResult),
                         lat = report.lat,
                         lon = report.lon,
-                        kecamatan = finalKec,
-                        kelurahan = finalKel,
-                        addressDetail = finalAddr,
-                        userId = report.userId
+                        alamatLengkap = alamatLengkapGabungan,
+                        userId = report.userId,
+                        namaKecamatanDariGps = finalKec
                     )
 
                     if (result.isSuccess) {
                         dao.deleteReport(report.id)
                         file.delete()
-
                         sendSuccessNotification(report.label)
                     } else {
                         Log.e("UploadWorker", "Gagal Upload: ${result.exceptionOrNull()}")
                         isAllSuccess = false
                     }
                 } else {
-                    dao.deleteReport(report.id)
+                    dao.deleteReport(report.id) // File hilang, hapus dari antrean
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

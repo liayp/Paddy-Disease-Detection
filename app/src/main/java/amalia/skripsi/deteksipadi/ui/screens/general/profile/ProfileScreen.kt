@@ -8,16 +8,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Agriculture
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExitToApp
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,6 +28,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     navController: NavController,
@@ -40,11 +37,9 @@ fun ProfileScreen(
 ) {
     val context = LocalContext.current
     val authRepo = remember { AuthRepository(context) }
-
     val userProfile = profileViewModel.userProfile.value
     val isLoading = profileViewModel.isLoading.value
 
-    // Load Data saat layar dibuka
     LaunchedEffect(Unit) {
         profileViewModel.loadUserProfile(authRepo)
     }
@@ -59,27 +54,20 @@ fun ProfileScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(230.dp)
-            ) {
+            // HEADER SECTION
+            Box(modifier = Modifier.fillMaxWidth().height(230.dp)) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(160.dp)
                         .background(
                             brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.primaryContainer
-                                )
+                                colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer)
                             ),
                             shape = RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp)
                         )
                 )
 
-                // Foto Profil (Floating di tengah)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -92,18 +80,13 @@ fun ProfileScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     if (!userProfile?.avatar_url.isNullOrEmpty()) {
-                        // Load Foto dari Google URL
                         AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(userProfile.avatar_url)
-                                .crossfade(true)
-                                .build(),
+                            model = ImageRequest.Builder(context).data(userProfile?.avatar_url).crossfade(true).build(),
                             contentDescription = "Foto Profil",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        // Fallback Inisial (Jika tidak ada foto)
                         Text(
                             text = userProfile?.full_name?.firstOrNull()?.toString() ?: "?",
                             style = MaterialTheme.typography.displayMedium,
@@ -111,6 +94,16 @@ fun ProfileScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+
+                // TOMBOL EDIT FLOATING
+                SmallFloatingActionButton(
+                    onClick = { navController.navigate("edit_profile") },
+                    modifier = Modifier.align(Alignment.BottomCenter).offset(x = 45.dp, y = 0.dp),
+                    shape = CircleShape,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Icon(Icons.Outlined.Edit, contentDescription = "Edit Profile", modifier = Modifier.size(18.dp))
                 }
             }
 
@@ -130,13 +123,10 @@ fun ProfileScreen(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-
                     Spacer(modifier = Modifier.height(8.dp))
-
                     Surface(
                         color = if (userProfile?.role == "popt") Color(0xFFE3F2FD) else Color(0xFFE8F5E9),
-                        shape = RoundedCornerShape(50),
-                        border = null
+                        shape = RoundedCornerShape(50)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -160,136 +150,74 @@ fun ProfileScreen(
                 }
             }
 
-            // PERBAIKAN: Spacer dihapus agar langsung terhubung dengan konten di bawahnya
-            // DETAIL INFORMASI (KARTU)
+            // DETAIL INFORMASI
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp)) {
+                Text(text = "Informasi Akun", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp))
 
-                Text(
-                    text = "Informasi Akun",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+                ProfileInfoCard(Icons.Default.Email, "Email Terdaftar", userProfile?.email ?: "-", Color(0xFFFB8C00))
+                Spacer(modifier = Modifier.height(12.dp))
+                ProfileInfoCard(Icons.Default.Phone, "Nomor WhatsApp", userProfile?.phone_number ?: "Belum Diatur", Color(0xFF388E3C))
+                Spacer(modifier = Modifier.height(12.dp))
+                ProfileInfoCard(Icons.Default.Home, "Alamat Domisili", userProfile?.alamat ?: "Belum Diatur", Color(0xFF1976D2))
 
-                // Kartu Email
-                ProfileInfoCard(
-                    icon = Icons.Default.Email,
-                    label = "Email Terdaftar",
-                    value = userProfile?.email ?: "-",
-                    iconColor = Color(0xFFFB8C00) // Orange
-                )
+                if (userProfile?.role == "popt") {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ProfileInfoCard(Icons.Default.Badge, "NIP Pegawai", userProfile.nip ?: "-", Color(0xFFD32F2F))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ProfileInfoCard(Icons.Default.LocationOn, "Wilayah Binaan (WKPP)", if (!userProfile.wkpp_kecamatan.isNullOrEmpty()) userProfile.wkpp_kecamatan.joinToString(", ") else "Belum Ditentukan", Color(0xFFD32F2F))
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // BUTTONS
+                OutlinedButton(
+                    onClick = { navController.navigate("change_password") },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Outlined.Lock, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Ganti Kata Sandi")
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Kartu User ID
-                ProfileInfoCard(
-                    icon = Icons.Default.Person,
-                    label = "ID Pengguna",
-                    value = userProfile?.id?.take(8)?.uppercase() ?: "-",
-                    iconColor = Color(0xFF8E24AA) // Ungu
-                )
-
-                // Khusus POPT: Kartu Wilayah Kerja
-                if (userProfile?.role == "popt") {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    ProfileInfoCard(
-                        icon = Icons.Default.LocationOn,
-                        label = "Wilayah Binaan (WKPP)",
-                        value = userProfile.wkpp_kecamatan?.joinToString(", ") ?: "Belum Ditentukan",
-                        iconColor = Color(0xFFD32F2F) // Merah
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(40.dp))
-
-                // TOMBOL LOGOUT
                 Button(
                     onClick = onLogout,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f), contentColor = MaterialTheme.colorScheme.error),
                     shape = RoundedCornerShape(12.dp),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    elevation = ButtonDefaults.buttonElevation(0.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.ExitToApp, contentDescription = null)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Keluar dari Aplikasi",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Icon(Icons.Outlined.ExitToApp, null)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(text = "Keluar dari Aplikasi", fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-
-                // Footer Version
-                Text(
-                    text = "Versi Aplikasi 1.0.0",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
-
-                Spacer(modifier = Modifier.height(80.dp)) // Extra space untuk BottomNav
+                Text(text = "Sistem Peringatan Dini v2.0.0", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.CenterHorizontally))
+                Spacer(modifier = Modifier.height(80.dp))
             }
         }
     }
 }
 
-// KOMPONEN KARTU INFORMASI (Reusable)
 @Composable
-fun ProfileInfoCard(
-    icon: ImageVector,
-    label: String,
-    value: String,
-    iconColor: Color
-) {
+fun ProfileInfoCard(icon: ImageVector, label: String, value: String, iconColor: Color) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Icon dengan background bulat transparan
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(iconColor.copy(alpha = 0.1f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = iconColor,
-                    modifier = Modifier.size(24.dp)
-                )
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(48.dp).background(iconColor.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                Icon(imageVector = icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(24.dp))
             }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
+            Spacer(Modifier.width(16.dp))
             Column {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = value,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Text(text = label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(text = value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }

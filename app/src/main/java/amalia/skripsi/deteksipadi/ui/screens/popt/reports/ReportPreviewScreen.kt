@@ -49,15 +49,12 @@ fun ReportPreviewScreen(
             Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = { viewModel.downloadCSV(context) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = MaterialTheme.colorScheme.primary ),
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.primary
-                    )
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Default.TableChart, "Download CSV"); Text("CSV")
+                    Icon(Icons.Default.TableChart, "Download CSV"); Spacer(Modifier.width(8.dp)); Text("CSV")
                 }
                 Button(onClick = { viewModel.downloadPDF(context) }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.PictureAsPdf, null); Text("Download PDF")
+                    Icon(Icons.Default.PictureAsPdf, null); Spacer(Modifier.width(8.dp)); Text("Download PDF")
                 }
             }
         }
@@ -107,8 +104,12 @@ fun ReportPreviewScreen(
                                 Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text("${index + 1}", Modifier.width(25.dp), fontSize = 9.sp)
                                     Text(report.created_at.take(10), Modifier.weight(1f), fontSize = 9.sp)
-                                    Text(report.ai_label, Modifier.weight(1.5f), fontSize = 9.sp)
-                                    Text(report.status.uppercase(), Modifier.weight(1f), fontSize = 8.sp, fontWeight = FontWeight.Bold, color = if(report.status == "pending") Color.Red else MaterialTheme.colorScheme.primary)
+                                    Text(report.label_ai, Modifier.weight(1.5f), fontSize = 9.sp)
+
+                                    val isPending = report.status == "menunggu_verifikasi" || report.status == "perlu_kunjungan"
+                                    val statusColor = if(isPending) Color.Red else MaterialTheme.colorScheme.primary
+
+                                    Text(report.status.replace("_", " ").uppercase(), Modifier.weight(1f), fontSize = 8.sp, fontWeight = FontWeight.Bold, color = statusColor)
                                 }
                             }
                         }

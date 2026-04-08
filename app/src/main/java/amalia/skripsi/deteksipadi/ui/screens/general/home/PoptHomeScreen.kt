@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.home
 
 import amalia.skripsi.deteksipadi.ui.navigation.BottomNavItem
+import amalia.skripsi.deteksipadi.ui.navigation.navigateSingleTopTo
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -20,7 +21,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import androidx.navigation.NavGraph.Companion.findStartDestination
 
 @Composable
 fun PoptHomeScreen(
@@ -48,7 +48,6 @@ fun PoptHomeScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // HERO CARD (Status Wilayah Binaan)
         HeroStatusCard(
             isDanger = state.pendingReports > 0,
             distance = state.pendingReports.toDouble(),
@@ -57,7 +56,6 @@ fun PoptHomeScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // QUICK ACTIONS
         Text("Aksi Cepat", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -66,22 +64,24 @@ fun PoptHomeScreen(
                 icon = Icons.Default.Map,
                 color = Color(0xFF1976D2),
                 modifier = Modifier.weight(1f)
-            ) { navController.navigate(BottomNavItem.Peta.route) }
+            ) {
+                // REVISI: Pindah tab Peta, bukan stack baru
+                navController.navigateSingleTopTo(BottomNavItem.Peta.route)
+            }
 
             ActionIconCard(
-                label = "Buat Rekap",
+                label = "Validasi Laporan",
                 icon = Icons.Default.Description,
                 color = Color(0xFF388E3C),
                 modifier = Modifier.weight(1f)
             ) {
-                // Arahkan ke Reports karena di sana ada fitur Download/Rekap
-                navController.navigate(BottomNavItem.Reports.route)
+                // REVISI: Pindah tab Reports
+                navController.navigateSingleTopTo(BottomNavItem.Reports.route)
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // STATISTIK HAMA (Diagram Lingkaran)
         Text("Sebaran Hama & Penyakit", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -93,7 +93,7 @@ fun PoptHomeScreen(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 if (state.pestDistribution.isEmpty()) {
-                    Text("Belum ada data di wilayah Anda", color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("Belum ada data laporan yang masuk di wilayah Anda.", color = Color.Gray, modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.bodySmall)
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         PestPieChart(state.pestDistribution, modifier = Modifier.size(130.dp))
@@ -110,49 +110,73 @@ fun PoptHomeScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // SEKSI 4: LAPORAN MASUK TERBARU
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Laporan Masuk Terbaru", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             TextButton(onClick = {
-                // FIX NAVIGASI POPT: Ke menu Laporan
-                navController.navigate(BottomNavItem.Reports.route) {
-                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
-                }
+                // REVISI: Gunakan fungsi cerdas
+                navController.navigateSingleTopTo(BottomNavItem.Reports.route)
             }) {
-                Text("Lihat Semua")
+                Text("Cek Validasi")
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (state.notifications.isEmpty()) {
-            EmptyStateCard(onClick = {}, isOffline = !isNetworkAvailable)
+        val latestReportData = state.notifications.firstOrNull()?.reportData
+
+        if (!isNetworkAvailable && latestReportData == null) {
+            EmptyStateCard(onClick = {}, isOffline = true, customMessage = "Koneksi terputus. Tidak dapat memantau laporan baru.")
+        } else if (latestReportData == null) {
+            EmptyStateCard(
+                onClick = { navController.navigateSingleTopTo(BottomNavItem.Reports.route) },
+                isOffline = false,
+                customMessage = "Bagus! Saat ini tidak ada laporan baru yang menunggu verifikasi Anda."
+            )
         } else {
-            val latest = state.notifications.first().reportData
-            latest?.let {
-                LatestReportCard(
-                    report = DisplayReport(
-                        label = it.ai_label,
-                        confidence = it.confidence.toFloat(),
-                        status = it.status,
-                        time = it.created_at.take(10),
-                        imageUrl = it.image_url,
-                        isFromLocal = false
-                    ),
-                    onClick = {
-                        navController.navigate(BottomNavItem.Reports.route)
-                    }
-                )
-            }
+            LatestReportCard(
+                report = DisplayReport(
+                    label = latestReportData.label_ai,
+                    confidence = latestReportData.confidence,
+                    status = latestReportData.status,
+                    time = latestReportData.created_at.take(16).replace("T", " "),
+                    imageUrl = latestReportData.foto_url,
+                    isFromLocal = false
+                ),
+                onClick = {
+                    navController.navigateSingleTopTo(BottomNavItem.Reports.route)
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(100.dp))
     }
 }
 
-// Komponen Pendukung Diagram
+@Composable
+fun EmptyStateCard(onClick: () -> Unit, isOffline: Boolean = false, customMessage: String? = null) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            Icon(
+                imageVector = if (isOffline) Icons.Default.CloudOff else Icons.Default.AssignmentLate,
+                contentDescription = null,
+                tint = if (isOffline) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = customMessage ?: if (isOffline) "Koneksi terputus." else "Belum ada aktivitas.",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 @Composable
 fun PestPieChart(data: List<PestStat>, modifier: Modifier) {
     Canvas(modifier = modifier) {
@@ -180,7 +204,7 @@ fun LegendItem(stat: PestStat) {
             Text(stat.label, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
         Text(
-            text = "${stat.verified} Terverifikasi • ${stat.pending} Pending",
+            text = "${stat.verified} Selesai • ${stat.pending} Menunggu",
             fontSize = 9.sp, color = Color.Gray, modifier = Modifier.padding(start = 16.dp)
         )
     }

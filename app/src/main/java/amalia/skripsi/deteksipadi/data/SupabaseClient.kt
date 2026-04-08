@@ -6,15 +6,15 @@ import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
 import kotlinx.serialization.Serializable
 
 val supabase = createSupabaseClient(
-    supabaseUrl = "https://gyhvaxwqjubznzivmyqo.supabase.co",
-    supabaseKey = "sb_publishable_nioGHUXmUEc_cu2NCRlP3g_YJKoNhIt"
+    supabaseUrl = "https://rhlixmoadeexgvrbxkmo.supabase.co",
+    supabaseKey = "sb_publishable_dV8oRP92tnXhqDantHWkkg_RTgO3V4P"
 ) {
     install(Postgrest)
     install(Storage)
@@ -22,175 +22,103 @@ val supabase = createSupabaseClient(
     install(Realtime)
 }
 
+// DTO Murni untuk membaca data dari database (Ditambah lat & lon dari Computed Field)
 @Serializable
-data class HotspotDto(
+data class LaporanDto(
     val id: String,
-    val image_url: String,
-    val ai_label: String,
-    val confidence: Double,
-    val status: String,
-    val created_at: String,
-    val kecamatan: String,
-    val kelurahan: String,
-    val address_detail: String,
-    val lat: Double,
-    val lon: Double,
-    val user_id: String? = null,
+    val petani_id: String? = null,
+    val foto_url: String = "",
+    val label_ai: String = "Unknown",
+    val confidence: Float = 0f,
+    val status: String = "menunggu",
+    val prioritas: String? = null,
+    val termasuk_cluster: Boolean = false,
+    val alamat_lengkap: String? = null,
+    val created_at: String = "",
+    val lat: Double = 0.0,
+    val lon: Double = 0.0
 )
 
+// DTO Khusus untuk Insert (PostgREST butuh WKT String untuk tipe PostGIS)
 @Serializable
-data class DetectionDetailDto(
-    val label: String,
-    val score: Float,
-    val box: List<Float>
-)
-
-@Serializable
-data class DetectionBoxDto(
-    val label: String,
-    val score: Float,
-    val box: List<Float>
-)
-
-@Serializable
-data class ReportDto(
-    val image_url: String,
-    val ai_label: String,
+data class LaporanInsertDto(
+    val petani_id: String,
+    val foto_url: String,
+    val label_ai: String,
     val confidence: Float,
-    val status: String = "active",
-    val location: String,
-    val lat: Double,
-    val lon: Double,
-    val kecamatan: String?,
-    val kelurahan: String?,
-    val address_detail: String?,
-    val user_id: String,
-    val detection_details: List<DetectionBoxDto>
+    val lokasi: String, // Format WKT: SRID=4326;POINT(lon lat)
+    val alamat_lengkap: String,
+    val kecamatan_id: String?
 )
+
+suspend fun fetchActiveLaporan(): List<LaporanDto> {
+    return try {
+        supabase.from("laporan")
+            .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon")) {
+                filter {
+                    neq("status", "ditolak")
+                }
+            }.decodeList<LaporanDto>()
+    } catch (e: Exception) {
+        android.util.Log.e("PETA_DEBUG", "Gagal Fetch Peta: ${e.message}", e)
+        emptyList()
+    }
+}
+
+suspend fun getKecamatanIdByName(name: String): String? {
+    return try {
+        val cleanName = name.trim()
+        val result = supabase.from("kecamatan")
+            .select(columns = Columns.raw("id,nama")) {
+                filter {
+                    ilike("nama", "%$cleanName%")
+                }
+            }
+            .decodeList<Map<String, String>>()
+        result.firstOrNull()?.get("id")
+    } catch (e: Exception) {
+        android.util.Log.e("KEC_DEBUG", "Lookup kecamatan gagal: ${e.message}")
+        null
+    }
+}
 
 suspend fun submitReportToSupabase(
     photoBytes: ByteArray,
     results: List<DetectionResult>,
     lat: Double,
     lon: Double,
-    kecamatan: String,
-    kelurahan: String,
-    addressDetail: String,
+    alamatLengkap: String,
+    namaKecamatanDariGps: String,
     userId: String
 ): Result<String> {
     return try {
-        val fileName = "report_${System.currentTimeMillis()}.jpg"
+        val kecId = getKecamatanIdByName(namaKecamatanDariGps)
+
+        if (kecId == null) {
+            return Result.failure(Exception("Kecamatan tidak ditemukan di database"))
+        }
+
+        val fileName = "laporan_${System.currentTimeMillis()}.jpg"
         val bucket = supabase.storage.from("evidence_photos")
         bucket.upload(fileName, photoBytes)
         val publicUrl = bucket.publicUrl(fileName)
 
         val bestResult = results.maxByOrNull { it.score }
-        val dominantLabel = bestResult?.label ?: "Tidak Terdeteksi"
-        val dominantScore = bestResult?.score ?: 0f
-
-        val detailsList = results.map {
-            DetectionBoxDto(
-                label = it.label,
-                score = it.score,
-                // Simpan koordinat box biar POPT bisa lihat di dashboard nanti
-                box = listOf(it.box.left, it.box.top, it.box.right, it.box.bottom)
-            )
-        }
-
         val locationString = "SRID=4326;POINT($lon $lat)"
 
-        val report = ReportDto(
-            image_url = publicUrl,
-            ai_label = dominantLabel,
-            confidence = dominantScore,
-            location = locationString,
-            lat = lat,
-            lon = lon,
-            kecamatan = kecamatan,
-            kelurahan = kelurahan,
-            address_detail = addressDetail,
-            user_id = userId,
-            detection_details = detailsList
-        )
-        supabase.from("reports").insert(report)
-
-        Result.success("Berhasil")
-    } catch (e: Exception) {
-        e.printStackTrace()
-        Result.failure(e)
-    }
-}
-
-@Serializable
-data class SmartReportParams(
-    val p_image_url: String,
-    val p_ai_label: String,
-    val p_confidence: Float,
-    val p_lat: Double,
-    val p_lon: Double,
-    val p_details: List<DetectionDetailDto>,
-    val p_district: String,
-    val p_user_id: String? = null
-)
-
-// --- FUNGSI-FUNGSI API ---
-
-// Fetch Data Peta
-suspend fun fetchActiveHotspots(): List<HotspotDto> {
-    return try {
-        val result = supabase.postgrest.rpc("get_active_hotspots")
-        result.decodeList<HotspotDto>()
-    } catch (e: Exception) {
-        e.printStackTrace()
-        emptyList()
-    }
-}
-
-// Kirim Laporan
-suspend fun submitReportToSupabase(
-    photoBytes: ByteArray,
-    results: List<amalia.skripsi.deteksipadi.ml.DetectionResult>,
-    lat: Double,
-    lon: Double,
-    districtName: String
-): Result<String> {
-    return try {
-        val userId = supabase.auth.currentUserOrNull()?.id
-            ?: return Result.failure(Exception("Anda harus login untuk melapor!"))
-
-        val bestResult = results.maxByOrNull { it.score }
-        val dominantLabel = bestResult?.label ?: "Tidak Terdeteksi"
-        val dominantScore = bestResult?.score ?: 0f
-
-        val detailsDto = results.map { res ->
-            DetectionDetailDto(
-                label = res.label,
-                score = res.score,
-                box = listOf(res.box.left, res.box.top, res.box.right, res.box.bottom)
-            )
-        }
-
-        val fileName = "report_${System.currentTimeMillis()}.jpg"
-        val bucket = supabase.storage.from("evidence_photos")
-        bucket.upload(fileName, photoBytes)
-        val publicUrl = bucket.publicUrl(fileName)
-
-        val params = SmartReportParams(
-            p_image_url = publicUrl,
-            p_ai_label = dominantLabel,
-            p_confidence = dominantScore,
-            p_lat = lat,
-            p_lon = lon,
-            p_details = detailsDto,
-            p_district = districtName,
-            p_user_id = userId
+        val laporan = LaporanInsertDto(
+            petani_id = userId,
+            foto_url = publicUrl,
+            label_ai = bestResult?.label ?: "Unknown",
+            confidence = bestResult?.score ?: 0f,
+            lokasi = locationString,
+            alamat_lengkap = alamatLengkap,
+            kecamatan_id = kecId
         )
 
-        supabase.from("reports")
-
+        supabase.from("laporan").insert(laporan)
         Result.success("Berhasil")
     } catch (e: Exception) {
-        e.printStackTrace()
         Result.failure(e)
     }
 }

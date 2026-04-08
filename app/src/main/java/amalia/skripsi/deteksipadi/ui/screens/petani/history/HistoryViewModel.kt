@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.history
 
 import amalia.skripsi.deteksipadi.data.AuthRepository
+import amalia.skripsi.deteksipadi.data.LaporanDto
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.local.PendingReport
 import amalia.skripsi.deteksipadi.data.supabase
@@ -9,50 +10,34 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import javax.inject.Inject
-
-@Serializable
-data class RemoteReport(
-    val id: String, // Diubah ke String karena UUID database
-    val ai_label: String,
-    val confidence: Float,
-    val status: String,
-    val created_at: String,
-    val image_url: String,
-    val user_id: String,
-    val kecamatan: String? = null,
-    val kelurahan: String? = null,
-    val address_detail: String? = null,
-    val lat: Double = 0.0,
-    val lon: Double = 0.0
-)
 
 data class HistoryUiState(
     val pendingList: List<PendingReport> = emptyList(),
-    val processList: List<RemoteReport> = emptyList(),
-    val finishedList: List<RemoteReport> = emptyList(),
-    val isLoading: Boolean = false
+    val processList: List<LaporanDto> = emptyList(),
+    val finishedList: List<LaporanDto> = emptyList(),
+    val isLoading: Boolean = true
 )
 
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
-    private val db: AppDatabase,
-    private val authRepo: AuthRepository
+    private val authRepo: AuthRepository,
+    private val db: AppDatabase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HistoryUiState())
     val uiState = _uiState.asStateFlow()
 
     init {
-        loadAllHistory()
+        loadHistory()
     }
 
-    fun loadAllHistory() {
+    fun loadHistory() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
 
@@ -63,27 +48,25 @@ class HistoryViewModel @Inject constructor(
                 return@launch
             }
 
-            // 1. Ambil Data Lokal
             val allLocals = db.pendingReportDao().getAllReports()
             val myLocals = allLocals.filter { it.userId == userId }
 
-            // 2. Ambil Data Server
             try {
-                val remoteData = supabase.from("reports")
-                    .select {
-                        filter { eq("user_id", userId) }
+                // PENTING: Gunakan Columns.raw agar tidak fetch kolom 'lokasi' yang berbentuk Hex
+                val remoteData = supabase.from("laporan")
+                    .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon")) {
+                        filter { eq("petani_id", userId) }
                         order("created_at", Order.DESCENDING)
-                    }.decodeList<RemoteReport>()
+                    }.decodeList<LaporanDto>()
 
                 _uiState.value = _uiState.value.copy(
                     pendingList = myLocals,
-                    // Di database kamu statusnya adalah 'pending'
-                    processList = remoteData.filter { it.status.lowercase() == "pending" },
-                    // Selain 'pending' (verified/rejected) masuk ke Selesai
-                    finishedList = remoteData.filter { it.status.lowercase() != "pending" },
+                    processList = remoteData.filter { it.status == "menunggu_verifikasi" || it.status == "perlu_kunjungan" },
+                    finishedList = remoteData.filter { it.status == "terverifikasi" || it.status == "selesai" || it.status == "ditolak" },
                     isLoading = false
                 )
             } catch (e: Exception) {
+                android.util.Log.e("HISTORY_DEBUG", "CRASH SAAT FETCH HISTORY: ${e.message}", e)
                 _uiState.value = _uiState.value.copy(
                     pendingList = myLocals,
                     isLoading = false

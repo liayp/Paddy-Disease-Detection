@@ -1,15 +1,17 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.home
 
-import amalia.skripsi.deteksipadi.data.HotspotDto
+import amalia.skripsi.deteksipadi.data.LaporanDto
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class NotificationItem(
     val id: String,
-    val title: String,
-    val message: String,
-    val time: String,
-    val isRead: Boolean,
-    val route: String,
-    val reportData: HotspotDto? = null
+    val laporan_id: String?,
+    val judul: String,
+    val pesan: String,
+    val sudah_dibaca: Boolean,
+    val created_at: String,
+    val reportData: LaporanDto? = null
 )
 
 data class DisplayReport(

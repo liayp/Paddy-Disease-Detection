@@ -22,18 +22,14 @@ val TextDark = Color(0xFF2D3E2E)
 
 @Composable
 fun ResultSheetContent(
-    results: List<DetectionResult>, // Terima LIST, bukan single string
+    results: List<DetectionResult>,
     locationStr: String?,
     isLoading: Boolean,
     onSend: () -> Unit
 ) {
     val isLocationValid = locationStr != null
 
-    // Grouping hasil: Hitung jumlah setiap hama
-    // Contoh: { "Blas" : 3, "HDB" : 1 }
     val summary = results.groupingBy { it.label }.eachCount()
-
-    // Ambil skor tertinggi untuk display header
     val maxScore = results.maxOfOrNull { it.score } ?: 0f
     val isHighRisk = maxScore > 0.5f
 
@@ -54,7 +50,6 @@ fun ResultSheetContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Info Card
         Card(
             colors = CardDefaults.cardColors(containerColor = Color.White),
             shape = RoundedCornerShape(12.dp),
@@ -62,7 +57,6 @@ fun ResultSheetContent(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
 
-                // Header: Total Objek
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -74,7 +68,6 @@ fun ResultSheetContent(
                         color = TextDark
                     )
 
-                    // Badge Score Tertinggi
                     Surface(
                         color = if (isHighRisk) PadiGreen else Color.Gray,
                         shape = RoundedCornerShape(8.dp)
@@ -88,9 +81,8 @@ fun ResultSheetContent(
                     }
                 }
 
-                Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.LightGray.copy(alpha=0.5f))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.LightGray.copy(alpha=0.5f))
 
-                // List Rincian (Looping Summary)
                 summary.forEach { (label, count) ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -103,7 +95,6 @@ fun ResultSheetContent(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Lokasi
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Filled.LocationOn,
@@ -123,7 +114,6 @@ fun ResultSheetContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Tombol Kirim
         Button(
             onClick = onSend,
             enabled = !isLoading && isLocationValid && results.isNotEmpty(),
@@ -139,18 +129,18 @@ fun ResultSheetContent(
             if (isLoading) {
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Mengirim Laporan...")
+                Text("Mengirim Peringatan Dini...")
             } else {
                 Icon(Icons.Default.Send, contentDescription = null, tint = Color.White)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Laporkan ke Sistem & POPT", fontWeight = FontWeight.Bold)
+                Text("Kirim ke Sistem Peringatan Dini", fontWeight = FontWeight.Bold)
             }
         }
 
         if (maxScore > 0.5f) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Info: Skor tinggi (>50%) akan langsung muncul di Peta.",
+                text = "Info: Skor >50% akan langsung memicu radius bahaya di Peta EWS.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
             )

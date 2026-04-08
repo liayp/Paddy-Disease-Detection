@@ -1,6 +1,8 @@
 package amalia.skripsi.deteksipadi.ui.screens.popt.reports
 
-import amalia.skripsi.deteksipadi.data.HotspotDto
+import amalia.skripsi.deteksipadi.data.LaporanDto
+import amalia.skripsi.deteksipadi.data.PoptWilayahDto
+import amalia.skripsi.deteksipadi.data.ProfileDto
 import amalia.skripsi.deteksipadi.data.supabase
 import android.annotation.SuppressLint
 import android.content.Context
@@ -14,6 +16,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,9 +35,9 @@ data class PoptProfile(
 )
 
 data class PoptReportsUiState(
-    val processList: List<HotspotDto> = emptyList(),
-    val finishedList: List<HotspotDto> = emptyList(),
-    val exportPreviewList: List<HotspotDto> = emptyList(),
+    val processList: List<LaporanDto> = emptyList(),
+    val finishedList: List<LaporanDto> = emptyList(),
+    val exportPreviewList: List<LaporanDto> = emptyList(),
     val poptProfile: PoptProfile? = null,
     val isLoading: Boolean = false,
     val selectedMonthLabel: String = ""
@@ -45,7 +48,7 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
     private val _uiState = MutableStateFlow(PoptReportsUiState())
     val uiState = _uiState.asStateFlow()
 
-    private var allHotspotsForPOPT = listOf<HotspotDto>()
+    private var allHotspotsForPOPT = listOf<LaporanDto>()
 
     init {
         loadPoptInitialData()
@@ -56,21 +59,22 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
             _uiState.value = _uiState.value.copy(isLoading = true)
             val userId = supabase.auth.currentUserOrNull()?.id ?: return@launch
             try {
-                val profile = supabase.from("profiles").select { filter { eq("id", userId) } }.decodeSingle<PoptProfile>()
-                val allData = supabase.from("reports").select { order("created_at", Order.DESCENDING) }.decodeList<HotspotDto>()
-                val wkppList = profile.wkpp_kecamatan ?: emptyList()
+                // 1. Ambil Profil POPT & Relasi Wilayah untuk Header Cetak PDF
+                val profileDto = supabase.from("profiles").select { filter { eq("id", userId) } }.decodeSingle<ProfileDto>()
+                val wilayahResponse = supabase.from("popt_wilayah").select(columns = Columns.raw("kecamatan(nama_kecamatan)")) { filter { eq("popt_id", userId) } }.decodeList<PoptWilayahDto>()
+                val wkppList = wilayahResponse.mapNotNull { it.kecamatan?.nama_kecamatan }
+                val profile = PoptProfile(full_name = profileDto.full_name, wkpp_kecamatan = wkppList)
 
-                allHotspotsForPOPT = allData.filter { report ->
-                    wkppList.any { wkpp -> report.kecamatan.trim().equals(wkpp.trim(), ignoreCase = true) }
-                }
+                // 2. Ambil data (Filter WKPP otomatis dilakukan oleh RLS Supabase!)
+                allHotspotsForPOPT = supabase.from("laporan").select { order("created_at", Order.DESCENDING) }.decodeList<LaporanDto>()
 
                 _uiState.value = _uiState.value.copy(
                     poptProfile = profile,
-                    processList = allHotspotsForPOPT.filter { it.status.lowercase() == "pending" },
-                    finishedList = allHotspotsForPOPT.filter { it.status.lowercase() != "pending" },
+                    processList = allHotspotsForPOPT.filter { it.status == "menunggu_verifikasi" || it.status == "perlu_kunjungan" },
+                    finishedList = allHotspotsForPOPT.filter { it.status == "terverifikasi" || it.status == "selesai" || it.status == "ditolak" },
                     isLoading = false
                 )
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }
         }
@@ -95,12 +99,8 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
         }
         val label = SimpleDateFormat("MMMM yyyy", Locale("id", "ID")).format(cal.time)
 
-        // PERBAIKAN: month + 1 karena database format 01-12, sedangkan Calendar 0-11
         val dbFilterPrefix = String.format("%04d-%02d", year, month + 1)
-
-        val filtered = allHotspotsForPOPT.filter {
-            it.created_at.startsWith(dbFilterPrefix)
-        }
+        val filtered = allHotspotsForPOPT.filter { it.created_at.startsWith(dbFilterPrefix) }
 
         _uiState.value = _uiState.value.copy(
             exportPreviewList = filtered,
@@ -117,7 +117,6 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
         val paint = Paint()
         val label = _uiState.value.selectedMonthLabel
 
-        // PDF FORMAL (Plek ketiplek Preview)
         paint.textAlign = Paint.Align.CENTER
         paint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         paint.textSize = 12f
@@ -145,7 +144,6 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
 
         var y = 210f
         paint.isFakeBoldText = true
-        // Header Table Background
         val rectPaint = Paint().apply { color = Color.LTGRAY; alpha = 60 }
         canvas.drawRect(50f, y - 15f, 545f, y + 5f, rectPaint)
 
@@ -162,8 +160,8 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
                 y += 20f
                 canvas.drawText("${index + 1}", 55f, y, paint)
                 canvas.drawText(it.created_at.take(10), 85f, y, paint)
-                canvas.drawText(it.ai_label, 185f, y, paint)
-                canvas.drawText(it.status.uppercase(), 450f, y, paint)
+                canvas.drawText(it.label_ai, 185f, y, paint) // Ubah ke label_ai
+                canvas.drawText(it.status.replace("_", " ").uppercase(), 450f, y, paint)
                 canvas.drawLine(50f, y + 5f, 545f, y + 5f, Paint().apply { color = Color.LTGRAY; strokeWidth = 0.5f })
             }
         }
@@ -186,9 +184,10 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
     fun downloadCSV(context: Context) {
         val data = _uiState.value.exportPreviewList
         val fileName = "Laporan_${_uiState.value.selectedMonthLabel.replace(" ", "_")}.csv"
-        val csvHeader = "No,Tanggal,Hama,Kecamatan,Kelurahan,Status\n"
+        val csvHeader = "No,Tanggal,Hama,Alamat,Status\n" // Menggunakan Alamat Lengkap
         val csvContent = if (data.isEmpty()) "DATA TIDAK DITEMUKAN" else data.mapIndexed { index, it ->
-            "${index + 1},${it.created_at.take(10)},${it.ai_label},${it.kecamatan},${it.kelurahan},${it.status}"
+            val cleanAlamat = it.alamat_lengkap?.replace(",", " ") ?: "-"
+            "${index + 1},${it.created_at.take(10)},${it.label_ai},${cleanAlamat},${it.status}"
         }.joinToString("\n")
 
         try {

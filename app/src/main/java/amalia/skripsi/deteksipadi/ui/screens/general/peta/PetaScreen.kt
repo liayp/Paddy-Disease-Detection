@@ -1,7 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.peta
 
-import amalia.skripsi.deteksipadi.data.HotspotDto
-import amalia.skripsi.deteksipadi.data.fetchActiveHotspots
+import amalia.skripsi.deteksipadi.data.LaporanDto
+import amalia.skripsi.deteksipadi.data.supabase
 import amalia.skripsi.deteksipadi.services.HazardDetectionService
 import android.Manifest
 import android.annotation.SuppressLint
@@ -12,7 +12,6 @@ import android.location.Location
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -46,6 +45,8 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.launch
 
 fun isOnlineMap(context: Context): Boolean {
@@ -68,9 +69,7 @@ fun rememberMapConnectivityState(context: Context): State<Boolean> {
             override fun onAvailable(network: Network) { isConnected.value = true }
             override fun onLost(network: Network) { isConnected.value = false }
         }
-
         cm.registerDefaultNetworkCallback(callback)
-
         onDispose { cm.unregisterNetworkCallback(callback) }
     }
     return isConnected
@@ -81,31 +80,25 @@ fun PetaScreen(
     navController: NavController,
     petaViewModel: PetaViewModel,
     userRole: String,
-    onReportClick: (HotspotDto) -> Unit
+    onReportClick: (LaporanDto) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     val isInDanger by petaViewModel.isDanger.collectAsState()
-
-    // DETEKSI JARINGAN REALTIME
     val isOnline by rememberMapConnectivityState(context)
 
-    // --- State UI ---
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
     var hasLocationPermission by remember { mutableStateOf(false) }
-    var selectedHotspot by remember { mutableStateOf<HotspotDto?>(null) }
+    var selectedHotspot by remember { mutableStateOf<LaporanDto?>(null) }
     var isProtectionActive by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-
-    // Smart Follow State
     var isAutoFollowActive by remember { mutableStateOf(true) }
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(0.5333, 123.0667), 10f)
     }
 
-    // Deteksi interaksi manual user untuk mematikan auto-follow
     LaunchedEffect(cameraPositionState.isMoving) {
         if (cameraPositionState.isMoving && cameraPositionState.cameraMoveStartedReason == CameraMoveStartedReason.GESTURE) {
             isAutoFollowActive = false
@@ -116,11 +109,16 @@ fun PetaScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted -> hasLocationPermission = isGranted }
 
-    // Fetch data hanya jika ONLINE
+    // FETCH SELURUH DATA: Tidak ada filter RLS di sini agar POPT bisa melihat tren global
     LaunchedEffect(isOnline) {
         if (isOnline) {
-            val list = fetchActiveHotspots()
-            petaViewModel.setInitialData(list)
+            try {
+                val list = supabase.from("laporan")
+                    .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon")) {
+                        filter { neq("status", "ditolak") }
+                    }.decodeList<LaporanDto>()
+                petaViewModel.setInitialData(list)
+            } catch (e: Exception) { e.printStackTrace() }
         }
     }
 
@@ -140,16 +138,10 @@ fun PetaScreen(
                     if (loc != null) {
                         val newLatLng = LatLng(loc.latitude, loc.longitude)
                         userLocation = newLatLng
-
-                        // KIRIM DATA KE REPOSITORY (Agar Home Sinkron)
                         petaViewModel.updateHazardLocation(loc.latitude, loc.longitude)
-
-                        // Mode Smart Follow
                         if (isAutoFollowActive) {
                             scope.launch {
-                                cameraPositionState.animate(
-                                    CameraUpdateFactory.newLatLngZoom(newLatLng, 16f)
-                                )
+                                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(newLatLng, 16f))
                             }
                         }
                     }
@@ -174,6 +166,7 @@ fun PetaScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
 
+        
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
@@ -181,23 +174,37 @@ fun PetaScreen(
             uiSettings = MapUiSettings(
                 zoomControlsEnabled = false,
                 mapToolbarEnabled = false,
-                myLocationButtonEnabled = false // Custom button di bawah
+                myLocationButtonEnabled = false
             ),
             onMapClick = { selectedHotspot = null }
         ) {
             if (isOnline) {
                 petaViewModel.filteredHotspots.forEach { spot ->
                     val pos = LatLng(spot.lat, spot.lon)
+
+                    val fillColor = when(spot.prioritas) {
+                        "tinggi" -> Color(0x4DFF0000) // Merah lebih tegas (30%)
+                        "sedang" -> Color(0x4DFFA500) // Jingga 30%
+                        else -> Color(0x4DFFEB3B)     // Kuning 30%
+                    }
+
+                    val strokeColor = when(spot.prioritas) {
+                        "tinggi" -> Color.Red
+                        "sedang" -> Color(0xFFFFA500)
+                        else -> Color(0xFFFBC02D)
+                    }
+
                     Circle(
                         center = pos,
                         radius = 300.0,
-                        fillColor = Color(0x33FF0000),
-                        strokeColor = Color.Red,
-                        strokeWidth = 2f
+                        fillColor = fillColor,
+                        strokeColor = strokeColor,
+                        strokeWidth = 4f
                     )
                     Marker(
                         state = MarkerState(position = pos),
-                        title = spot.ai_label,
+                        title = spot.label_ai,
+                        snippet = if (userRole == "popt") "Klik untuk detail validasi" else "Radius Bahaya 300m",
                         onClick = {
                             selectedHotspot = spot
                             true
@@ -206,7 +213,6 @@ fun PetaScreen(
                 }
             }
         }
-
 
         if (hasLocationPermission) {
             StatusPill(
@@ -222,7 +228,6 @@ fun PetaScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalAlignment = Alignment.End
             ) {
-                // Settings Notifikasi
                 SmallFloatingActionButton(
                     onClick = { showSettingsDialog = true },
                     containerColor = Color.White,
@@ -236,7 +241,6 @@ fun PetaScreen(
                     }
                 }
 
-                // Filter Hama (Disable jika offline agar tidak crash)
                 SmallFloatingActionButton(
                     onClick = {
                         if (isOnline) navController.navigate("filter_screen")
@@ -248,7 +252,6 @@ fun PetaScreen(
                     Icon(Icons.Default.FilterList, "Filter")
                 }
 
-                // Smart Follow Button
                 FloatingActionButton(
                     onClick = {
                         isAutoFollowActive = true
@@ -285,19 +288,30 @@ fun PetaScreen(
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     elevation = CardDefaults.cardElevation(8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().clickable { if (userRole == "popt") onReportClick(spot) }
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        if (userRole == "popt") onReportClick(spot)
+                    }
                 ) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         AsyncImage(
-                            model = ImageRequest.Builder(context).data(spot.image_url).crossfade(true).build(),
+                            model = ImageRequest.Builder(context).data(spot.foto_url).crossfade(true).build(),
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)).background(Color.LightGray)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(text = spot.ai_label, fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = spot.label_ai, fontWeight = FontWeight.Bold)
+                                if (spot.prioritas == "tinggi") {
+                                    Spacer(Modifier.width(8.dp))
+                                    Surface(color = Color.Red, shape = RoundedCornerShape(4.dp)) {
+                                        Text("URGENT", color = Color.White, fontSize = 8.sp, modifier = Modifier.padding(2.dp))
+                                    }
+                                }
+                            }
                             Text(text = distanceText, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            Text(text = spot.alamat_lengkap ?: "Lokasi tidak diketahui", style = MaterialTheme.typography.labelSmall, maxLines = 1, color = Color.Gray)
                         }
                         if (userRole == "popt") Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary)
                     }
@@ -305,14 +319,13 @@ fun PetaScreen(
             }
         }
 
-        // Dialog Settings Notifikasi
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
-                title = { Text("Notifikasi Peringatan") },
+                title = { Text("Mode Pantau (EWS)") },
                 text = {
                     Column {
-                        Text("Aktifkan mode pantau untuk peringatan suara saat mendekati zona merah.")
+                        Text("Aktifkan alarm untuk mendapatkan notifikasi suara jika Anda memasuki radius bahaya hama.")
                         Spacer(Modifier.height(16.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (isProtectionActive) "Status: AKTIF" else "Status: MATI", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -348,8 +361,8 @@ fun StatusPill(isInDanger: Boolean, isOffline: Boolean, modifier: Modifier = Mod
 
     val text = when {
         isOffline -> "KONEKSI TERPUTUS"
-        isInDanger -> "ZONA BAHAYA!"
-        else -> "LOKASI AMAN"
+        isInDanger -> "ZONA BAHAYA HAMA!"
+        else -> "LOKASI ANDA AMAN"
     }
 
     Surface(
