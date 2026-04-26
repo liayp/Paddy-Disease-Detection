@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.home
 
 import amalia.skripsi.deteksipadi.data.NotificationItem
+import okhttp3.Address
 
 
 data class DisplayReport(
@@ -9,6 +10,7 @@ data class DisplayReport(
     val status: String,
     val time: String,
     val imageUrl: Any,
+    val address: String?,
     val isFromLocal: Boolean
 )
 

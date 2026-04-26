@@ -43,12 +43,19 @@ fun NotificationScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Aktivitas", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp) },
+                title = {
+                    Text("Aktivitas",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 20.sp)
+                        },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
+                    IconButton(
+                        onClick = { navController.popBackStack() })
+                    {
                         Icon(Icons.Default.ArrowBack, "Kembali")
                     }
                 },
+                windowInsets = WindowInsets(0),
                 // REVISI: Tambahkan aksi "Tandai semua dibaca" (Fitur standar aplikasi besar)
                 actions = {
                     if (state.notifications.any { !it.sudah_dibaca }) {
@@ -92,7 +99,6 @@ fun NotificationScreen(
 fun NotificationRow(item: NotificationItem, onClick: () -> Unit) {
     val context = LocalContext.current
 
-    // REVISI: Gunakan warna surface yang lebih kontras untuk membedakan status baca
     val backgroundColor = if (!item.sudah_dibaca)
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
     else

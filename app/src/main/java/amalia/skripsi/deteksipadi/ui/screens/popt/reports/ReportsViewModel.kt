@@ -18,6 +18,12 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.decodeRecord
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -45,49 +51,139 @@ data class PoptReportsUiState(
 
 @Suppress("DEPRECATION")
 class PoptReportsViewModel @Inject constructor() : ViewModel() {
+
     private val _uiState = MutableStateFlow(PoptReportsUiState())
     val uiState = _uiState.asStateFlow()
 
-    private var allHotspotsForPOPT = listOf<LaporanDto>()
+    private var allHotspotsForPOPT = mutableListOf<LaporanDto>()
+    private var realtimeChannel: RealtimeChannel? = null
 
     init {
         loadPoptInitialData()
+        setupRealtimeListener()
     }
 
     fun loadPoptInitialData() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
-            val userId = supabase.auth.currentUserOrNull()?.id ?: return@launch
-            try {
-                // 1. Ambil Profil POPT & Relasi Wilayah untuk Header Cetak PDF
-                val profileDto = supabase.from("profiles").select { filter { eq("id", userId) } }.decodeSingle<ProfileDto>()
-                val wilayahResponse = supabase.from("popt_wilayah").select(columns = Columns.raw("kecamatan(nama_kecamatan)")) { filter { eq("popt_id", userId) } }.decodeList<PoptWilayahDto>()
-                val wkppList = wilayahResponse.mapNotNull { it.kecamatan?.nama_kecamatan }
-                val profile = PoptProfile(full_name = profileDto.full_name, wkpp_kecamatan = wkppList)
 
-                // 2. Ambil data (Filter WKPP otomatis dilakukan oleh RLS Supabase!)
-                allHotspotsForPOPT = supabase.from("laporan").select { order("created_at", Order.DESCENDING) }.decodeList<LaporanDto>()
+            val userId = supabase.auth.currentUserOrNull()?.id ?: return@launch
+
+            try {
+                // Profil
+                val profileDto = supabase.from("profiles")
+                    .select { filter { eq("id", userId) } }
+                    .decodeSingle<ProfileDto>()
+
+                val wilayahResponse = supabase.from("popt_wilayah")
+                    .select(columns = Columns.raw("kecamatan(nama_kecamatan)")) {
+                        filter { eq("popt_id", userId) }
+                    }
+                    .decodeList<PoptWilayahDto>()
+
+                val wkppList = wilayahResponse.mapNotNull {
+                    it.kecamatan?.nama_kecamatan
+                }
+
+                val profile = PoptProfile(
+                    full_name = profileDto.full_name,
+                    wkpp_kecamatan = wkppList
+                )
+
+                // Data awal
+                val remoteData = supabase.from("laporan")
+                    .select {
+                        order("created_at", Order.DESCENDING)
+                    }
+                    .decodeList<LaporanDto>()
+
+                allHotspotsForPOPT = remoteData.toMutableList()
+
+                updateUiState()
 
                 _uiState.value = _uiState.value.copy(
                     poptProfile = profile,
-                    processList = allHotspotsForPOPT.filter { it.status == "menunggu_verifikasi" || it.status == "perlu_kunjungan" },
-                    finishedList = allHotspotsForPOPT.filter { it.status == "terverifikasi" || it.status == "selesai" || it.status == "ditolak" },
                     isLoading = false
                 )
+
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }
         }
     }
 
+    private fun setupRealtimeListener() {
+        viewModelScope.launch {
+
+            realtimeChannel = supabase.realtime.channel("popt_reports_realtime")
+
+            val changeFlow = realtimeChannel!!
+                .postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "laporan"
+                }
+
+            realtimeChannel!!.subscribe()
+
+            changeFlow.collect { action ->
+                when (action) {
+
+                    is PostgresAction.Insert -> {
+                        val newData = action.decodeRecord<LaporanDto>()
+                        allHotspotsForPOPT.add(0, newData)
+                    }
+
+                    is PostgresAction.Update -> {
+                        val updated = action.decodeRecord<LaporanDto>()
+                        val index = allHotspotsForPOPT.indexOfFirst {
+                            it.id == updated.id
+                        }
+                        if (index != -1) {
+                            allHotspotsForPOPT[index] = updated
+                        }
+                    }
+
+                    is PostgresAction.Delete -> {
+                        val id = action.oldRecord["id"]
+                            .toString()
+                            .replace("\"", "")
+                        allHotspotsForPOPT.removeAll { it.id == id }
+                    }
+
+                    else -> {}
+                }
+
+                updateUiState()
+            }
+        }
+    }
+
+    private fun updateUiState() {
+        _uiState.value = _uiState.value.copy(
+            processList = allHotspotsForPOPT.filter {
+                it.status == "menunggu_verifikasi" ||
+                        it.status == "perlu_kunjungan"
+            },
+            finishedList = allHotspotsForPOPT.filter {
+                it.status == "terverifikasi" ||
+                        it.status == "selesai" ||
+                        it.status == "ditolak"
+            }
+        )
+    }
+
     fun getLastThreeMonths(): List<Pair<String, Pair<Int, Int>>> {
         val months = mutableListOf<Pair<String, Pair<Int, Int>>>()
         val cal = Calendar.getInstance()
         val sdf = SimpleDateFormat("MMMM yyyy", Locale("id", "ID"))
+
         repeat(3) {
-            months.add(sdf.format(cal.time) to (cal.get(Calendar.MONTH) to cal.get(Calendar.YEAR)))
+            months.add(
+                sdf.format(cal.time) to
+                        (cal.get(Calendar.MONTH) to cal.get(Calendar.YEAR))
+            )
             cal.add(Calendar.MONTH, -1)
         }
+
         return months
     }
 
@@ -97,10 +193,15 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
             set(Calendar.YEAR, year)
             set(Calendar.MONTH, month)
         }
-        val label = SimpleDateFormat("MMMM yyyy", Locale("id", "ID")).format(cal.time)
+
+        val label = SimpleDateFormat("MMMM yyyy", Locale("id", "ID"))
+            .format(cal.time)
 
         val dbFilterPrefix = String.format("%04d-%02d", year, month + 1)
-        val filtered = allHotspotsForPOPT.filter { it.created_at.startsWith(dbFilterPrefix) }
+
+        val filtered = allHotspotsForPOPT.filter {
+            it.created_at.startsWith(dbFilterPrefix)
+        }
 
         _uiState.value = _uiState.value.copy(
             exportPreviewList = filtered,
@@ -144,7 +245,12 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
 
         var y = 210f
         paint.isFakeBoldText = true
-        val rectPaint = Paint().apply { color = Color.LTGRAY; alpha = 60 }
+
+        val rectPaint = Paint().apply {
+            color = Color.LTGRAY
+            alpha = 60
+        }
+
         canvas.drawRect(50f, y - 15f, 545f, y + 5f, rectPaint)
 
         canvas.drawText("No", 55f, y, paint)
@@ -153,6 +259,7 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
         canvas.drawText("Status", 450f, y, paint)
 
         paint.isFakeBoldText = false
+
         if (data.isEmpty()) {
             canvas.drawText("TIDAK ADA DATA LAPORAN PADA PERIODE INI", 190f, y + 40f, paint)
         } else {
@@ -160,42 +267,79 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
                 y += 20f
                 canvas.drawText("${index + 1}", 55f, y, paint)
                 canvas.drawText(it.created_at.take(10), 85f, y, paint)
-                canvas.drawText(it.label_ai, 185f, y, paint) // Ubah ke label_ai
+                canvas.drawText(it.label_ai, 185f, y, paint)
                 canvas.drawText(it.status.replace("_", " ").uppercase(), 450f, y, paint)
-                canvas.drawLine(50f, y + 5f, 545f, y + 5f, Paint().apply { color = Color.LTGRAY; strokeWidth = 0.5f })
+                canvas.drawLine(50f, y + 5f, 545f, y + 5f, Paint().apply {
+                    color = Color.LTGRAY
+                    strokeWidth = 0.5f
+                })
             }
         }
 
         y += 60f
-        canvas.drawText("Gorontalo, ${SimpleDateFormat("dd MMMM yyyy", Locale("id", "ID")).format(Date())}", 380f, y, paint)
+
+        canvas.drawText(
+            "Gorontalo, ${SimpleDateFormat("dd MMMM yyyy", Locale("id", "ID")).format(Date())}",
+            380f,
+            y,
+            paint
+        )
+
         canvas.drawText("Petugas POPT,", 380f, y + 15f, paint)
-        canvas.drawText(_uiState.value.poptProfile?.full_name ?: "________________", 380f, y + 65f, paint.apply { isFakeBoldText = true })
+
+        canvas.drawText(
+            _uiState.value.poptProfile?.full_name ?: "________________",
+            380f,
+            y + 65f,
+            paint.apply { isFakeBoldText = true }
+        )
 
         pdfDocument.finishPage(page)
-        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Laporan_${label.replace(" ", "_")}.pdf")
+
+        val file = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "Laporan_${label.replace(" ", "_")}.pdf"
+        )
+
         try {
             pdfDocument.writeTo(FileOutputStream(file))
             Toast.makeText(context, "Laporan PDF Berhasil Diunduh", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_SHORT).show()
-        } finally { pdfDocument.close() }
+        } finally {
+            pdfDocument.close()
+        }
     }
 
     fun downloadCSV(context: Context) {
         val data = _uiState.value.exportPreviewList
         val fileName = "Laporan_${_uiState.value.selectedMonthLabel.replace(" ", "_")}.csv"
-        val csvHeader = "No,Tanggal,Hama,Alamat,Status\n" // Menggunakan Alamat Lengkap
-        val csvContent = if (data.isEmpty()) "DATA TIDAK DITEMUKAN" else data.mapIndexed { index, it ->
-            val cleanAlamat = it.alamat_lengkap?.replace(",", " ") ?: "-"
-            "${index + 1},${it.created_at.take(10)},${it.label_ai},${cleanAlamat},${it.status}"
-        }.joinToString("\n")
+
+        val csvHeader = "No,Tanggal,Hama,Alamat,Status\n"
+
+        val csvContent =
+            if (data.isEmpty()) "DATA TIDAK DITEMUKAN"
+            else data.mapIndexed { index, it ->
+                val cleanAlamat = it.alamat_lengkap?.replace(",", " ") ?: "-"
+                "${index + 1},${it.created_at.take(10)},${it.label_ai},${cleanAlamat},${it.status}"
+            }.joinToString("\n")
 
         try {
-            val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
+            val file = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                fileName
+            )
             file.writeText(csvHeader + csvContent)
             Toast.makeText(context, "CSV Berhasil Diunduh", Toast.LENGTH_LONG).show()
         } catch (_: Exception) {
             Toast.makeText(context, "Gagal simpan CSV", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        viewModelScope.launch {
+            realtimeChannel?.unsubscribe()
         }
     }
 }

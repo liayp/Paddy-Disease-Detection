@@ -94,7 +94,6 @@ fun PetaniHomeScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             TextButton(onClick = {
-                // REVISI: Pindah tab History dengan bersih
                 navController.navigateSingleTopTo(BottomNavItem.History.route)
             }) {
                 Text("Lihat Semua")
@@ -106,30 +105,18 @@ fun PetaniHomeScreen(
         val report = state.reportDisplay
 
         if (report != null) {
-            if (!isNetworkAvailable && !report.isFromLocal) {
-                EmptyStateCard(
-                    onClick = { navController.navigate("scanner") },
-                    isOffline = true,
-                    customMessage = "Koneksi terputus. Riwayat pantauan terbaru Anda tidak dapat dimuat."
-                )
-            } else {
-                LatestReportCard(
-                    report = report,
-                    onClick = {
-                        if (report.isFromLocal) {
-                            android.widget.Toast.makeText(context, "Laporan ini tersimpan di memori dan menunggu sinyal internet untuk dikirim.", android.widget.Toast.LENGTH_SHORT).show()
-                        } else {
-                            // REVISI: Klik card arahkan ke tab History
-                            navController.navigateSingleTopTo(BottomNavItem.History.route)
-                        }
-                    }
-                )
-            }
+            LatestReportCard(
+                report = report,
+                onClick = {
+                    navController.navigateSingleTopTo(BottomNavItem.Reports.route)
+                }
+            )
         } else {
             EmptyStateCard(
                 onClick = { navController.navigate("scanner") },
-                isOffline = false,
-                customMessage = "Belum ada pantauan. Ayo mulai deteksi area sawah Anda sekarang!"
+                isOffline = !isNetworkAvailable,
+                customMessage = if (!isNetworkAvailable) "Koneksi terputus. Data tidak dapat dimuat."
+                else "Belum ada pantauan. Ayo mulai deteksi area sawah Anda!"
             )
         }
 
