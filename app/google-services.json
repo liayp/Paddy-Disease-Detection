@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "91055173284",
+    "project_id": "deteksi-padi-3c587",
+    "storage_bucket": "deteksi-padi-3c587.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:91055173284:android:716903f48f652f01e7c031",
+        "android_client_info": {
+          "package_name": "amalia.skripsi.deteksipadi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMEs-_587DxspiOZh5s8mWlOapKKaecpU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

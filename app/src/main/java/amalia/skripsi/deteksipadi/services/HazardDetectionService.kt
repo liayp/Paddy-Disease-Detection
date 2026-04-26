@@ -162,26 +162,21 @@ class HazardDetectionService : Service() {
         hazardRepository.setDangerStatus(isDanger, minDistance)
 
         // Logika Peringatan
-        when {
-            minDistance <= 50.0 -> {
-                if (!isDangerNotified) {
-                    val bahaya = if(closestPrioritas == "tinggi") "ZONA CLUSTER TINGGI!" else "HAMA SANGAT DEKAT!"
-                    sendAlertNotification("BAHAYA! $bahaya", "Jarak: ${minDistance.toInt()}m.", true)
-                    isDangerNotified = true
-                    isWarningNotified = true
-                }
+        if (minDistance <= 50.0) {
+            if (!isDangerNotified) {
+                sendAlertNotification("BAHAYA!", "Hama sangat dekat", true)
+                isDangerNotified = true
+                isWarningNotified = true
             }
-            minDistance <= 300.0 -> {
-                if (!isWarningNotified) {
-                    sendAlertNotification("Memasuki Area Waspada", "Terdeteksi hama dalam radius 300m.", false)
-                    isWarningNotified = true
-                    isDangerNotified = false
-                }
-            }
-            else -> {
+        } else if (minDistance <= 300.0) {
+            if (!isWarningNotified) {
+                sendAlertNotification("Waspada", "Hama dalam radius 300m", false)
+                isWarningNotified = true
                 isDangerNotified = false
-                isWarningNotified = false
             }
+        } else {
+            isDangerNotified = false
+            isWarningNotified = false
         }
     }
 

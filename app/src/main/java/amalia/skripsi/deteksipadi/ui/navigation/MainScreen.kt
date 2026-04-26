@@ -15,6 +15,7 @@ import amalia.skripsi.deteksipadi.ui.screens.general.home.PetaniHomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.home.PoptHomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.notification.NotificationScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.profile.EditProfileScreen
+import amalia.skripsi.deteksipadi.ui.screens.general.report.UpdateLahanScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.report.PetaniReportDetailScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsViewModel
@@ -35,10 +36,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -106,6 +109,7 @@ fun MainScreen(
     val currentRoute = navBackStackEntry?.destination?.route
 
     var selectedReport by remember { mutableStateOf<LaporanDto?>(null) }
+    var selectedReportId by remember { mutableStateOf<String?>(null) }
 
     // Dynamic Bottom Bar Items based on Role
     val bottomBarItems = remember(userRole) {
@@ -217,26 +221,54 @@ fun MainScreen(
                 NotificationScreen(
                     navController = navController,
                     viewModel = homeViewModel,
-                    onNavigateToDetail = { report ->
-                        selectedReport = report
+                    onNavigateToDetail = { id ->
+                        selectedReportId = id
                         navController.navigate(if (userRole == "popt") "report_detail" else "petani_report_detail")
                     }
                 )
             }
 
             composable("report_detail") {
-                ReportDetailScreen(navController = navController, reportData = selectedReport)
+                ReportDetailScreen(
+                    navController = navController,
+                    reportData = selectedReport,
+                    reportId = selectedReportId // Pastikan ReportDetailScreen Anda diupdate untuk menerima ID
+                )
             }
 
             composable("filter_screen") {
                 FilterPetaScreen(navController = navController, viewModel = petaViewModel)
             }
 
+            composable(SCANNER_ROUTE) {
+                DetectionScreen(navController = navController, homeViewModel = hiltViewModel(), mode = "Laporan_Baru")
+            }
+
+            composable(
+                route = "update_lahan/{id}/{lat}/{lon}",
+                arguments = listOf(
+                    navArgument("id") { type = NavType.StringType },
+                    navArgument("lat") { type = NavType.StringType },
+                    navArgument("lon") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getString("id")
+                val lat = backStackEntry.arguments?.getString("lat")?.toDoubleOrNull()
+                val lon = backStackEntry.arguments?.getString("lon")?.toDoubleOrNull()
+
+                DetectionScreen(
+                    navController = navController,
+                    homeViewModel = hiltViewModel(),
+                    mode = "Update_Lahan",
+                    laporanId = id,
+                    targetLat = lat,
+                    targetLon = lon
+                )
+            }
+
+
             // ================= PETANI SPECIFIC =================
             if (userRole == "petani") {
-                composable(SCANNER_ROUTE) {
-                    DetectionScreen(navController = navController, homeViewModel = hiltViewModel())
-                }
 
                 composable(BottomNavItem.History.route) {
                     HistoryScreen(
@@ -250,7 +282,11 @@ fun MainScreen(
                 }
 
                 composable("petani_report_detail") {
-                    PetaniReportDetailScreen(navController = navController, reportData = selectedReport)
+                    PetaniReportDetailScreen(
+                        navController = navController,
+                        reportData = selectedReport,
+                        reportId = selectedReportId
+                    )
                 }
             }
 

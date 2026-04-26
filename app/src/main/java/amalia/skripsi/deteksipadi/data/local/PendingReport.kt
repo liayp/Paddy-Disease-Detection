@@ -21,7 +21,8 @@ data class PendingReport(
     val kelurahan: String,
     val addressDetail: String,
     val createdAt: Long = System.currentTimeMillis(),
-    val userId: String
+    val userId: String,
+    val deskripsi_gejala: String
 )
 
 @Dao

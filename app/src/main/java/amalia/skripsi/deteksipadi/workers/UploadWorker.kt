@@ -105,7 +105,8 @@ class UploadWorker(
                         lon = report.lon,
                         alamatLengkap = alamatLengkapGabungan,
                         userId = report.userId,
-                        namaKecamatanDariGps = finalKec
+                        namaKecamatanDariGps = finalKec,
+                        deskripsiGejala = report.deskripsi_gejala
                     )
 
                     if (result.isSuccess) {

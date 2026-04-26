@@ -13,14 +13,16 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.providers.builtin.IDToken
-import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
 import androidx.core.content.edit
-import io.github.jan.supabase.postgrest.from
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.tasks.await
 
 class AuthRepository @Inject constructor(
     @ApplicationContext private val context: Context
@@ -43,6 +45,42 @@ class AuthRepository @Inject constructor(
             Log.e("AuthRepo", "Gagal inisialisasi sesi: ${e.message}")
         }
         return supabase.auth.currentSessionOrNull() != null
+    }
+
+    suspend fun syncFcmToken() {
+        var retryCount = 0
+        val maxRetries = 3
+
+        while (true) {
+            try {
+                val user = supabase.auth.currentUserOrNull() ?: return
+
+                // REVISI FIX: Cek secara eksplisit apakah FirebaseApp sudah siap
+                val apps = FirebaseApp.getApps(context)
+                if (apps.isEmpty()) {
+                    Log.w("FCM_SYNC", "FirebaseApp belum siap, mencoba initialize manual...")
+                    FirebaseApp.initializeApp(context)
+                }
+
+                // Ambil token dengan await()
+                val token = FirebaseMessaging.getInstance().token.await()
+
+                if (!token.isNullOrEmpty()) {
+                    Log.d("FCM_SYNC", "Token didapat: $token")
+                    supabase.from("profiles").update(
+                        buildJsonObject { put("fcm_token", token) }
+                    ) {
+                        filter { eq("id", user.id) }
+                    }
+                    return // Berhasil, keluar dari loop
+                }
+            } catch (e: Exception) {
+                retryCount++
+                Log.e("FCM_SYNC_ERROR", "Percobaan $retryCount gagal: ${e.message}")
+                if (retryCount >= maxRetries) break
+                delay(3000) // Beri waktu lebih lama (3 detik) untuk inisialisasi internal
+            }
+        }
     }
 
     suspend fun getUserProfile(): UserProfile? {
@@ -116,6 +154,7 @@ class AuthRepository @Inject constructor(
                 phone_number = profileDto?.phone_number,
                 alamat = profileDto?.alamat,
                 nip = profileDto?.nip,
+                fcm_token = profileDto?.fcm_token,
                 wkpp_kecamatan = wkppList
             )
 
@@ -127,6 +166,7 @@ class AuthRepository @Inject constructor(
                 full_name = "User",
                 avatar_url = null,
                 role = "petani",
+                fcm_token = null,
                 wkpp_kecamatan = null
             )
         }
@@ -169,6 +209,8 @@ class AuthRepository @Inject constructor(
                 this.email = email
                 this.password = pass
             }
+            // REVISI: Ambil token perangkat segera setelah login berhasil
+            syncFcmToken()
             Result.success("Login Berhasil")
         } catch (e: Exception) {
             Result.failure(e)
@@ -185,6 +227,8 @@ class AuthRepository @Inject constructor(
                     put("role", role)
                 }
             }
+            // REVISI: Sinkronisasi token setelah pendaftaran
+            syncFcmToken()
             Result.success("Registrasi Berhasil! Silakan Login.")
         } catch (e: Exception) {
             Result.failure(e)
@@ -214,6 +258,8 @@ class AuthRepository @Inject constructor(
                     idToken = googleIdToken.idToken
                     provider = Google
                 }
+                // REVISI: Sinkronisasi token setelah masuk via Google
+                syncFcmToken()
                 Result.success("Login Google Berhasil")
             } else {
                 Result.failure(Exception("Gagal mendapatkan kredensial Google"))
@@ -225,6 +271,15 @@ class AuthRepository @Inject constructor(
 
     suspend fun logout() {
         try {
+            val user = supabase.auth.currentUserOrNull()
+            if (user != null) {
+                // REVISI: Set token ke null di DB saat logout agar HP ini tidak dikirimi notif akun ini lagi
+                supabase.from("profiles").update(
+                    buildJsonObject { put("fcm_token", null as String?) }
+                ) {
+                    filter { eq("id", user.id) }
+                }
+            }
             supabase.auth.signOut()
         } catch (_: Exception) {}
         prefs.edit { clear() }

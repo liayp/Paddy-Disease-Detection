@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import amalia.skripsi.deteksipadi.ml.DetectionResult
+import androidx.compose.ui.unit.sp
 
 val PadiGreen = Color(0xFF4CB64E)
 val TextDark = Color(0xFF2D3E2E)
@@ -25,6 +26,8 @@ fun ResultSheetContent(
     results: List<DetectionResult>,
     locationStr: String?,
     isLoading: Boolean,
+    deskripsi: String,
+    onDeskripsiChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
     val isLocationValid = locationStr != null
@@ -32,6 +35,9 @@ fun ResultSheetContent(
     val summary = results.groupingBy { it.label }.eachCount()
     val maxScore = results.maxOfOrNull { it.score } ?: 0f
     val isHighRisk = maxScore > 0.5f
+
+    //validasi data yang harus ada agar bisa mengirim laporan
+    val canSend = !isLoading && isLocationValid && results.isNotEmpty() && deskripsi.trim().isNotBlank()
 
     Column(
         modifier = Modifier
@@ -112,11 +118,29 @@ fun ResultSheetContent(
             }
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // FIELD DESKRIPSI GEJALA
+        OutlinedTextField(
+            value = deskripsi,
+            onValueChange = onDeskripsiChange,
+            label = { Text("Deskripsi Gejala Lapangan", fontSize = 14.sp) },
+            placeholder = { Text("Contoh: Daun terlihat bercak coklat dan mulai layu...", fontSize = 12.sp) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            minLines = 3,
+            maxLines = 5,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = PadiGreen,
+                unfocusedBorderColor = Color.LightGray
+            )
+        )
+
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
             onClick = onSend,
-            enabled = !isLoading && isLocationValid && results.isNotEmpty(),
+            enabled = canSend,
             colors = ButtonDefaults.buttonColors(
                 containerColor = PadiGreen,
                 disabledContainerColor = Color.Gray
@@ -143,6 +167,15 @@ fun ResultSheetContent(
                 text = "Info: Skor >50% akan langsung memicu radius bahaya di Peta EWS.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
+            )
+        }
+
+        if (!canSend && results.isNotEmpty() && isLocationValid && deskripsi.isBlank()) {
+            Text(
+                text = "*Wajib mengisi deskripsi gejala sebelum mengirim",
+                color = Color.Red,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(top = 8.dp)
             )
         }
 

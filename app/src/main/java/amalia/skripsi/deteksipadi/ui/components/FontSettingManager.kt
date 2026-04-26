@@ -1,4 +1,4 @@
-package amalia.skripsi.deteksipadi.ui.preferences
+package amalia.skripsi.deteksipadi.ui.components
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit

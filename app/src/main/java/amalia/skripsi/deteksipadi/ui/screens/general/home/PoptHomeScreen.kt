@@ -122,7 +122,7 @@ fun PoptHomeScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        val latestReportData = state.notifications.firstOrNull()?.reportData
+        val latestReportData = state.notifications.firstOrNull()?.laporan
 
         if (!isNetworkAvailable && latestReportData == null) {
             EmptyStateCard(onClick = {}, isOffline = true, customMessage = "Koneksi terputus. Tidak dapat memantau laporan baru.")

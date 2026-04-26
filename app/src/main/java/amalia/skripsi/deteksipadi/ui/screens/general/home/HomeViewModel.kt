@@ -3,6 +3,7 @@ package amalia.skripsi.deteksipadi.ui.screens.general.home
 import amalia.skripsi.deteksipadi.data.AuthRepository
 import amalia.skripsi.deteksipadi.data.HazardRepository
 import amalia.skripsi.deteksipadi.data.LaporanDto
+import amalia.skripsi.deteksipadi.data.NotificationItem
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.supabase
 import android.annotation.SuppressLint
@@ -14,6 +15,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -34,6 +37,27 @@ class HomeViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState = _uiState.asStateFlow()
+
+    init {
+        fetchNotifications()
+    }
+
+    fun fetchNotifications() {
+        viewModelScope.launch {
+            val user = supabase.auth.currentUserOrNull() ?: return@launch
+            try {
+                val list = supabase.from("notifikasi")
+                    .select() {
+                        filter { eq("user_id", user.id) }
+                        order("created_at", Order.DESCENDING)
+                    }.decodeList<NotificationItem>()
+
+                _uiState.update { it.copy(notifications = list) }
+            } catch (e: Exception) {
+                Log.e("NOTIF_ERROR", e.message.toString())
+            }
+        }
+    }
 
     // Observasi langsung dari Repository agar UI Home terupdate otomatis
     val isGeofenceDanger = hazardRepo.isDanger.stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -164,34 +188,25 @@ class HomeViewModel @Inject constructor(
     fun loadNotifications() {
         viewModelScope.launch {
             try {
-                val profile = authRepo.getUserProfile() ?: return@launch
+                val user = supabase.auth.currentUserOrNull() ?: return@launch
 
+                // Query dengan alias laporan:laporan_id(*)
                 val response = supabase.from("notifikasi")
-                    .select {
-                        filter { eq("user_id", profile.id) }
+                    .select(columns = Columns.raw("*, laporan:laporan_id(*)")) {
+                        filter { eq("user_id", user.id) }
                         order("created_at", Order.DESCENDING)
                     }
                     .decodeList<NotificationItem>()
 
-                val finalNotifications = response.map { notif ->
-                    if (notif.laporan_id != null) {
-                        val rData = try {
-                            supabase.from("laporan").select {
-                                filter { eq("id", notif.laporan_id) }
-                            }.decodeSingle<LaporanDto>()
-                        } catch (e: Exception) { null }
-                        notif.copy(reportData = rData)
-                    } else {
-                        notif
-                    }
-                }
-
-                _uiState.value = _uiState.value.copy(
-                    notifications = finalNotifications,
-                    unreadCount = response.count { !it.sudah_dibaca }
-                )
+                _uiState.update { it.copy(
+                    notifications = response,
+                    unreadCount = response.count { n -> !n.sudah_dibaca },
+                    isLoading = false
+                )}
+                Log.d("DEBUG_NOTIF", "Berhasil mengambil ${response.size} notifikasi")
             } catch (e: Exception) {
-                Log.e("DEBUG_NOTIF", "Gagal fetch: ${e.message}")
+                Log.e("DEBUG_NOTIF", "Fetch Error: ${e.message}")
+                e.printStackTrace()
             }
         }
     }

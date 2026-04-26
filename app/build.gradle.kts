@@ -7,6 +7,7 @@ plugins {
     id("com.google.dagger.hilt.android")
     kotlin("plugin.serialization") version "2.2.21"
     alias(libs.plugins.google.android.libraries.mapsplatform.secrets.gradle.plugin)
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -140,4 +141,13 @@ dependencies {
 
     //preferences
     implementation(libs.androidx.datastore.preferences)
+
+    //firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+
+    implementation(libs.firebase.analytics)
+
+    implementation(libs.ktor.client.okhttp)
+
 }

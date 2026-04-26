@@ -59,7 +59,16 @@ import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) {
+fun DetectionScreen(
+    navController: NavController,
+    homeViewModel: HomeViewModel,
+
+    mode: String = "Laporan_Baru",
+    laporanId: String? = null,
+    targetLat: Double? = null,
+    targetLon: Double? = null
+
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
@@ -72,6 +81,8 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
     var reportLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var isUploading by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
+
+    var inputDeskripsi by remember { mutableStateOf("") }
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val imageCapture = remember { ImageCapture.Builder().build() }
@@ -99,6 +110,7 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
         detectionResults = emptyList()
         reportLocation = null
         showSuccessDialog = false
+        inputDeskripsi = ""
     }
 
     BackHandler(enabled = showCapturedImageState.value) { onReset() }
@@ -157,11 +169,22 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                     results = detectionResults,
                     locationStr = reportLocation?.let { "${it.first}, ${it.second}" },
                     isLoading = isUploading,
+                    deskripsi = inputDeskripsi,
+                    onDeskripsiChange = { inputDeskripsi = it },
                     onSend = {
                         val rawBmp = capturedBitmapState.value
                         val loc = reportLocation
 
                         if (loc != null && rawBmp != null) {
+                            if (mode == "Update_Lahan" && targetLat != null && targetLon != null){
+                                val distance = amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils.calculateDistance(
+                                    loc.first, loc.second, targetLat, targetLon
+                                )
+                                if(distance > 20.0){
+                                    Toast.makeText(context, "Gagal! Anda terlalu jauh dari lokasi awal (Jarak:  ${distance.toInt()}m)", Toast.LENGTH_LONG).show()
+                                    return@ResultSheetContent
+                                }
+                            }
                             val currentUser = supabase.auth.currentUserOrNull()
                             val userId = currentUser?.id ?: ""
                             val hasInternet = isOnline(context)
@@ -181,33 +204,59 @@ fun DetectionScreen(navController: NavController, homeViewModel: HomeViewModel) 
                                 if (hasInternet) {
                                     withContext(Dispatchers.Main) { isUploading = true }
 
-                                    val result = submitReportToSupabase(
-                                        photoBytes = photoBytes,
-                                        results = detectionResults,
-                                        lat = loc.first,
-                                        lon = loc.second,
-                                        alamatLengkap = alamatLengkapGabungan,
-                                        namaKecamatanDariGps = addressInfo.first,
-                                        userId = userId
-                                    )
+                                    val result = if (mode == "Update_Lahan" && laporanId != null) {
+                                        // Gunakan fungsi update yang sudah kita buat di SupabaseClient
+                                        amalia.skripsi.deteksipadi.data.submitLaporanUpdate(
+                                            laporanId = laporanId,
+                                            userId = userId,
+                                            photoBytes = photoBytes,
+                                            labelAi = detectionResults.firstOrNull()?.label ?: "Sehat",
+                                            confidence = detectionResults.firstOrNull()?.score ?: 0f,
+                                            catatan = inputDeskripsi
+                                        )
+                                    } else {
+                                        // Logika Laporan Baru (Kode Awal)
+                                        val addressInfo = ImageUtils.getAddressName(context, loc.first, loc.second)
+                                        submitReportToSupabase(
+                                            photoBytes = photoBytes,
+                                            results = detectionResults,
+                                            lat = loc.first, lon = loc.second,
+                                            alamatLengkap = "${addressInfo.third}, ${addressInfo.second}, Kec. ${addressInfo.first}",
+                                            namaKecamatanDariGps = addressInfo.first,
+                                            userId = userId,
+                                            deskripsiGejala = inputDeskripsi
+                                        )
+                                    }
 
                                     withContext(Dispatchers.Main) {
                                         isUploading = false
                                         if (result.isSuccess) {
-                                            showSuccessDialog = true
-                                            Log.d("UPLOAD", "SUCCESS")
+                                            if (mode == "Update_Lahan"){
+                                                Toast.makeText(context, "Data Update berhasil dikirim!", Toast.LENGTH_LONG).show()
+                                                navController.popBackStack()
+                                            } else {
+                                                showSuccessDialog = true
+                                            }
                                         } else {
-                                            Log.e("UPLOAD", "FAILED: ${result.exceptionOrNull()}")
                                             Toast.makeText(context, "Gagal upload, simpan offline...", Toast.LENGTH_SHORT).show()
-                                            saveToLocalAndQueue(context, finalBitmap, detectionResults, loc, addressInfo, userId)
+                                            saveToLocalAndQueue(context, finalBitmap, detectionResults, loc, addressInfo, userId, inputDeskripsi)
                                             onReset()
                                         }
                                     }
                                 } else {
-                                    saveToLocalAndQueue(context, finalBitmap, detectionResults, loc, addressInfo, userId)
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, "Disimpan offline. Menunggu sinyal...", Toast.LENGTH_LONG).show()
-                                        onReset()
+                                    // LOGIKA OFFLINE (Hanya didukung untuk Laporan Baru agar tidak kompleks)
+                                    if (mode == "Laporan_Baru") {
+                                        val addressInfo = ImageUtils.getAddressName(context, loc.first, loc.second)
+                                        saveToLocalAndQueue(context, finalBitmap, detectionResults, loc, addressInfo, userId, inputDeskripsi)
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Koneksi mati. Laporan disimpan offline.", Toast.LENGTH_LONG).show()
+                                            onReset()
+                                        }
+                                    } else {
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Update lahan wajib membutuhkan internet.", Toast.LENGTH_LONG).show()
+                                            isUploading = false
+                                        }
                                     }
                                 }
                             }
@@ -298,7 +347,8 @@ suspend fun saveToLocalAndQueue(
     results: List<DetectionResult>,
     loc: Pair<Double, Double>,
     addr: Triple<String, String, String>,
-    userId: String
+    userId: String,
+    deskripsi: String
 ) {
     val fileName = "upload_${System.currentTimeMillis()}.jpg"
     val file = File(context.filesDir, fileName)
@@ -320,7 +370,8 @@ suspend fun saveToLocalAndQueue(
         kecamatan = addr.first,
         kelurahan = addr.second,
         addressDetail = addr.third,
-        userId = userId
+        userId = userId,
+        deskripsi_gejala = deskripsi
     )
     db.pendingReportDao().insert(pendingReport)
 

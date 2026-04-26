@@ -10,12 +10,15 @@ import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
+import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.serialization.Serializable
 
 val supabase = createSupabaseClient(
     supabaseUrl = "https://rhlixmoadeexgvrbxkmo.supabase.co",
     supabaseKey = "sb_publishable_dV8oRP92tnXhqDantHWkkg_RTgO3V4P"
 ) {
+    httpEngine = OkHttp.create()
+
     install(Postgrest)
     install(Storage)
     install(Auth)
@@ -36,7 +39,34 @@ data class LaporanDto(
     val alamat_lengkap: String? = null,
     val created_at: String = "",
     val lat: Double = 0.0,
-    val lon: Double = 0.0
+    val lon: Double = 0.0,
+    val deskripsi_gejala: String = "",
+    val instruksi_popt: String? = null,
+    val radius: Double = 0.3
+)
+
+@Serializable
+data class NotificationItem(
+    val id: String,
+    val user_id: String,
+    val laporan_id: String? = null,
+    val jenis: String,
+    val judul: String,
+    val pesan: String,
+    val sudah_dibaca: Boolean,
+    val created_at: String,
+    val foto_url_hama: String? = null,
+    val laporan: LaporanDto? = null
+)
+
+@Serializable
+data class LaporanUpdateDto(
+    val id: String? = null,
+    val laporan_id: String,
+    val foto_update_url: String,
+    val label_ai_update: String,
+    val confidence_update: Float,
+    val catatan: String
 )
 
 // DTO Khusus untuk Insert (PostgREST butuh WKT String untuk tipe PostGIS)
@@ -48,7 +78,8 @@ data class LaporanInsertDto(
     val confidence: Float,
     val lokasi: String, // Format WKT: SRID=4326;POINT(lon lat)
     val alamat_lengkap: String,
-    val kecamatan_id: String?
+    val kecamatan_id: String?,
+    val deskripsi_gejala: String
 )
 
 suspend fun fetchActiveLaporan(): List<LaporanDto> {
@@ -67,17 +98,19 @@ suspend fun fetchActiveLaporan(): List<LaporanDto> {
 
 suspend fun getKecamatanIdByName(name: String): String? {
     return try {
-        val cleanName = name.trim()
+        val cleanName = name.replace("Kecamatan", "", ignoreCase = true).trim()
+
         val result = supabase.from("kecamatan")
-            .select(columns = Columns.raw("id,nama")) {
+            .select(columns = Columns.raw("id, nama_kecamatan")) {
                 filter {
-                    ilike("nama", "%$cleanName%")
+                    ilike("nama_kecamatan", "%$cleanName%")
                 }
             }
             .decodeList<Map<String, String>>()
+
         result.firstOrNull()?.get("id")
     } catch (e: Exception) {
-        android.util.Log.e("KEC_DEBUG", "Lookup kecamatan gagal: ${e.message}")
+        android.util.Log.e("KEC_DEBUG", "Lookup gagal: ${e.message}")
         null
     }
 }
@@ -89,7 +122,8 @@ suspend fun submitReportToSupabase(
     lon: Double,
     alamatLengkap: String,
     namaKecamatanDariGps: String,
-    userId: String
+    userId: String,
+    deskripsiGejala: String
 ): Result<String> {
     return try {
         val kecId = getKecamatanIdByName(namaKecamatanDariGps)
@@ -113,11 +147,85 @@ suspend fun submitReportToSupabase(
             confidence = bestResult?.score ?: 0f,
             lokasi = locationString,
             alamat_lengkap = alamatLengkap,
-            kecamatan_id = kecId
+            kecamatan_id = kecId,
+            deskripsi_gejala = deskripsiGejala
         )
 
         supabase.from("laporan").insert(laporan)
         Result.success("Berhasil")
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+suspend fun fetchLaporanUpdates(laporanId: String): List<LaporanUpdateDto> {
+    return try {
+        supabase.from("laporan_updates")
+            .select { filter { eq("laporan_id", laporanId) } }
+            .decodeList<LaporanUpdateDto>()
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+suspend fun submitLaporanUpdate(
+    laporanId: String,
+    userId: String,
+    photoBytes: ByteArray,
+    labelAi: String,
+    confidence: Float,
+    catatan: String
+): Result<Unit> {
+    return try {
+        val fileName = "update_${laporanId}_${System.currentTimeMillis()}.jpg"
+        val bucket = supabase.storage.from("evidence_photos")
+        bucket.upload(fileName, photoBytes)
+        val publicUrl = bucket.publicUrl(fileName)
+
+        val updateData = LaporanUpdateDto(
+            laporan_id = laporanId,
+            foto_update_url = publicUrl,
+            label_ai_update = labelAi,
+            confidence_update = confidence,
+            catatan = catatan
+        )
+
+        supabase.from("laporan_updates").insert(updateData)
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+
+suspend fun updateLaporanStatus(
+    laporanId: String,
+    status: String,
+    instruksi: String,
+    radius: Double
+): Result<Unit> {
+    return try {
+        supabase.from("laporan").update({
+            set("status", status)
+            set("instruksi_popt", instruksi)
+            set("radius", radius)
+        }) {
+            filter { eq("id", laporanId) }
+        }
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+suspend fun markLaporanSelesai(laporanId: String): Result<Unit> {
+    return try {
+        supabase.from("laporan").update({
+            set("status", "selesai")
+        }) {
+            filter { eq("id", laporanId) }
+        }
+        Result.success(Unit)
     } catch (e: Exception) {
         Result.failure(e)
     }
