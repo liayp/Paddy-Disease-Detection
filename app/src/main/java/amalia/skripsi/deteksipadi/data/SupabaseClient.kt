@@ -6,12 +6,16 @@ import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
 import io.ktor.client.engine.okhttp.OkHttp
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 val supabase = createSupabaseClient(
     supabaseUrl = "https://rhlixmoadeexgvrbxkmo.supabase.co",
@@ -29,10 +33,10 @@ val supabase = createSupabaseClient(
 @Serializable
 data class LaporanDto(
     val id: String,
-    val petani_id: String? = null,
+    val petani_id: String,
     val foto_url: String = "",
-    val label_ai: String = "Unknown",
-    val confidence: Float = 0f,
+    val label_ai: String? = null,
+    val confidence: Float? = null,
     val status: String = "menunggu",
     val prioritas: String? = null,
     val termasuk_cluster: Boolean = false,
@@ -42,7 +46,8 @@ data class LaporanDto(
     val lon: Double = 0.0,
     val deskripsi_gejala: String = "",
     val instruksi_popt: String? = null,
-    val radius: Double = 0.3
+    val radius: Double = 0.3,
+    val jenis_pelaporan: String = "ai"
 )
 
 @Serializable
@@ -74,12 +79,24 @@ data class LaporanUpdateDto(
 data class LaporanInsertDto(
     val petani_id: String,
     val foto_url: String,
-    val label_ai: String,
-    val confidence: Float,
+    val label_ai: String?,
+    val confidence: Float?,
     val lokasi: String, // Format WKT: SRID=4326;POINT(lon lat)
     val alamat_lengkap: String,
     val kecamatan_id: String?,
-    val deskripsi_gejala: String
+    val deskripsi_gejala: String,
+    val jenis_pelaporan: String,
+    val prioritas: String,
+    val status: String = "menunggu_verifikasi"
+)
+
+@Serializable
+data class MasterHamaDto(
+    val id: String,
+    val nama_hama: String,
+    val deskripsi: String,
+    val ciri_ciri: String,
+    val pertolongan_pertama: String
 )
 
 suspend fun fetchActiveLaporan(): List<LaporanDto> {
@@ -115,6 +132,7 @@ suspend fun getKecamatanIdByName(name: String): String? {
     }
 }
 
+
 suspend fun submitReportToSupabase(
     photoBytes: ByteArray,
     results: List<DetectionResult>,
@@ -123,14 +141,14 @@ suspend fun submitReportToSupabase(
     alamatLengkap: String,
     namaKecamatanDariGps: String,
     userId: String,
-    deskripsiGejala: String
+    deskripsiGejala: String,
+    jenisPelaporan: String = "AI", // Parameter default
+    isManualMode: Boolean,
+    manualPestName: String
 ): Result<String> {
     return try {
         val kecId = getKecamatanIdByName(namaKecamatanDariGps)
-
-        if (kecId == null) {
-            return Result.failure(Exception("Kecamatan tidak ditemukan di database"))
-        }
+        if (kecId == null) return Result.failure(Exception("Kecamatan tidak ditemukan di database"))
 
         val fileName = "laporan_${System.currentTimeMillis()}.jpg"
         val bucket = supabase.storage.from("evidence_photos")
@@ -140,20 +158,43 @@ suspend fun submitReportToSupabase(
         val bestResult = results.maxByOrNull { it.score }
         val locationString = "SRID=4326;POINT($lon $lat)"
 
+        // LOGIKA PENENTUAN DATA
+        val finalLabel = if (isManualMode) {
+            if (manualPestName == "Tidak Tahu") null else manualPestName
+        } else {
+            bestResult?.label
+        }
+
+        val finalConfidence = if (isManualMode) null else bestResult?.score
+        val finalTipe = if (isManualMode) "MANUAL" else "AI"
+
+        // Logika Prioritas yang aman
+
+        val finalPrioritas = if (isManualMode) {
+            "rendah" // Laporan manual langsung diset sedang agar diperiksa POPT
+        } else {
+            if (finalConfidence != null && finalConfidence > 0.5f) "tinggi" else "sedang"
+        }
+
         val laporan = LaporanInsertDto(
             petani_id = userId,
             foto_url = publicUrl,
-            label_ai = bestResult?.label ?: "Unknown",
-            confidence = bestResult?.score ?: 0f,
+            label_ai = finalLabel,
+            confidence = finalConfidence,
             lokasi = locationString,
             alamat_lengkap = alamatLengkap,
             kecamatan_id = kecId,
-            deskripsi_gejala = deskripsiGejala
+            deskripsi_gejala = deskripsiGejala,
+            jenis_pelaporan = finalTipe,
+            prioritas = finalPrioritas,
+            status = "menunggu_verifikasi"
+
         )
 
         supabase.from("laporan").insert(laporan)
         Result.success("Berhasil")
     } catch (e: Exception) {
+        android.util.Log.e("UPLOAD_ERROR", "Gagal upload: ${e.message}", e)
         Result.failure(e)
     }
 }
@@ -228,5 +269,35 @@ suspend fun markLaporanSelesai(laporanId: String): Result<Unit> {
         Result.success(Unit)
     } catch (e: Exception) {
         Result.failure(e)
+    }
+}
+
+@Serializable
+data class LocationValidationDto(
+    @SerialName("is_in_sawah") val isInSawah: Boolean,
+    @SerialName("kecamatan_id") val kecId: String?,
+    @SerialName("nama_kecamatan") val kecName: String?
+)
+
+suspend fun checkLocationGeofence(lat: Double, lon: Double): LocationValidationDto? {
+    return try {
+        supabase.postgrest.rpc(
+            function = "check_location_validity",
+            parameters = buildJsonObject {
+                put("user_lat", JsonPrimitive(lat))
+                put("user_lon", JsonPrimitive(lon))
+            }
+        ).decodeSingle<LocationValidationDto>()
+    } catch (e: Exception) {
+        null
+    }
+}
+
+suspend fun fetchMasterHama(): List<MasterHamaDto> {
+    return try {
+        supabase.from("master_hama").select().decodeList<MasterHamaDto>()
+    } catch (e: Exception) {
+        android.util.Log.e("MASTER_HAMA", "Gagal fetch: ${e.message}")
+        emptyList()
     }
 }

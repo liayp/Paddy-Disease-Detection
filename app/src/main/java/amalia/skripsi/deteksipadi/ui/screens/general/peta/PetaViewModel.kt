@@ -36,7 +36,6 @@ class PetaViewModel @Inject constructor(
     }
 
     fun updateHazardLocation(lat: Double, lon: Double) {
-        // Melakukan update status bahaya realtime berdasarkan filter aktif
         hazardRepo.updateLocation(lat, lon, filteredHotspots)
     }
 
@@ -56,8 +55,6 @@ class PetaViewModel @Inject constructor(
 
         filteredHotspots = allHotspots.filter { spot ->
             val matchHama = if (selectedHama == "Semua Hama") true else spot.label_ai == selectedHama
-
-            // POPT bisa mencari berdasarkan kecamatan apa saja untuk melihat tren area lain
             val matchLoc = if (selectedKecamatan.isEmpty()) true
             else spot.alamat_lengkap?.contains(selectedKecamatan, ignoreCase = true) == true
 

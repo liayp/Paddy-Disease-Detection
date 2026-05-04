@@ -1,12 +1,12 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.home
 
 import amalia.skripsi.deteksipadi.data.NotificationItem
-import okhttp3.Address
+import androidx.compose.ui.graphics.Color
 
 
 data class DisplayReport(
-    val label: String,
-    val confidence: Float,
+    val label: String?,
+    val confidence: Float?,
     val status: String,
     val time: String,
     val imageUrl: Any,
@@ -16,12 +16,12 @@ data class DisplayReport(
 
 // Model data untuk statistik hama di diagram
 data class PestStat(
-    val label: String,
+    val label: String?,
     val total: Int,
     val pending: Int,
     val verified: Int,
     val percentage: Float,
-    val color: androidx.compose.ui.graphics.Color
+    val color: Color
 )
 
 data class HomeUiState(

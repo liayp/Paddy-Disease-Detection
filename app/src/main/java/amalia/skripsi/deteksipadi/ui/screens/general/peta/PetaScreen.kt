@@ -109,12 +109,12 @@ fun PetaScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted -> hasLocationPermission = isGranted }
 
-    // FETCH SELURUH DATA: Tidak ada filter RLS di sini agar POPT bisa melihat tren global
     LaunchedEffect(isOnline) {
         if (isOnline) {
             try {
+                // Menambahkan jenis_pelaporan di query Columns
                 val list = supabase.from("laporan")
-                    .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon")) {
+                    .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon, jenis_pelaporan")) {
                         filter { neq("status", "ditolak") }
                     }.decodeList<LaporanDto>()
                 petaViewModel.setInitialData(list)
@@ -165,8 +165,6 @@ fun PetaScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-
-        
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
@@ -183,9 +181,9 @@ fun PetaScreen(
                     val pos = LatLng(spot.lat, spot.lon)
 
                     val fillColor = when(spot.prioritas) {
-                        "tinggi" -> Color(0x4DFF0000) // Merah lebih tegas (30%)
-                        "sedang" -> Color(0x4DFFA500) // Jingga 30%
-                        else -> Color(0x4DFFEB3B)     // Kuning 30%
+                        "tinggi" -> Color(0x4DFF0000)
+                        "sedang" -> Color(0x4DFFA500)
+                        else -> Color(0x4DFFEB3B)
                     }
 
                     val strokeColor = when(spot.prioritas) {
@@ -302,7 +300,7 @@ fun PetaScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = spot.label_ai, fontWeight = FontWeight.Bold)
+                                spot.label_ai?.let { Text(text = it, fontWeight = FontWeight.Bold) }
                                 if (spot.prioritas == "tinggi") {
                                     Spacer(Modifier.width(8.dp))
                                     Surface(color = Color.Red, shape = RoundedCornerShape(4.dp)) {

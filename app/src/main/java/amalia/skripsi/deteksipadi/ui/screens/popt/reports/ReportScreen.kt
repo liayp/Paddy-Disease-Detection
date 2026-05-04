@@ -224,45 +224,41 @@ fun PoptReportsScreen(
 @Composable
 fun PoptReportCard(item: LaporanDto, onClick: () -> Unit) {
     val context = LocalContext.current
-
-    val statusColor = when {
-        item.status == "menunggu_verifikasi" -> Color(0xFFF57C00)
-        item.status == "perlu_kunjungan" -> Color(0xFF7B1FA2)
-        item.status == "ditolak" -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
+    val statusColor = when(item.status) {
+        "ditolak" -> Color(0xFFD32F2F)
+        "selesai", "terverifikasi" -> Color(0xFF388E3C)
+        "perlu_kunjungan" -> Color(0xFF7B1FA2)
+        else -> Color(0xFFF57C00)
     }
+    val displayStatus = item.status.replace("_", " ").uppercase()
+    val displayLabel = item.label_ai ?: "Belum Teridentifikasi"
+    val displayAddress = item.alamat_lengkap ?: "Lokasi tidak diketahui"
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.size(70.dp)) {
-                AsyncImage(model = ImageRequest.Builder(context).data(item.foto_url).crossfade(true).build(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            }
+            AsyncImage(
+                model = ImageRequest.Builder(context).data(item.foto_url).crossfade(true).build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
+            )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = statusColor.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
-                        Text(item.status.replace("_", " ").uppercase(), style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        Text(displayStatus, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                     }
-                    Text(item.created_at.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(item.created_at.take(10), fontSize = 13.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(8.dp))
-                Text(item.label_ai, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
-                // Menampilkan alamat lengkap dengan memotong panjang jika terlalu panjang
-                val displayAddress = item.alamat_lengkap ?: "Lokasi tidak diketahui"
-                Text(displayAddress, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-
+                Text(displayLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(progress = item.confidence, modifier = Modifier.width(80.dp).height(6.dp).clip(CircleShape), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primaryContainer)
-                    Spacer(Modifier.width(8.dp))
-                    Text("${(item.confidence * 100).toInt()}% Akurat", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                }
+                Text(displayAddress, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
     }

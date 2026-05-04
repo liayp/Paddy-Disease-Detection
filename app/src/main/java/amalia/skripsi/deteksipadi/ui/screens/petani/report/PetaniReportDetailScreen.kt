@@ -87,14 +87,14 @@ fun PetaniReportDetailScreen(
                 ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White) }
 
                 Column(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp)) {
-                    val acc = (reportData.confidence * 100).toInt()
+                    val acc = (reportData.confidence?.times(100))?.toInt()
                     AssistChip(
                         onClick = {},
                         label = { Text("Confidence Score: $acc%", color = Color.White) },
                         colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF2E7D32)),
                         border = null
                     )
-                    Text(text = reportData.label_ai, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White)
+                    reportData.label_ai?.let { Text(text = it, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White) }
                     Text(text = "Status: ${reportData.status.replace("_", " ").uppercase()}", color = Color.White.copy(alpha = 0.8f), fontWeight = FontWeight.Medium)
                 }
 

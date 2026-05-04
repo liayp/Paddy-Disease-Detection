@@ -58,16 +58,16 @@ class HistoryViewModel @Inject constructor(
                 return@launch
             }
 
-            // ✅ Load local pending
-            val localData = db.pendingReportDao()
-                .getAllReports()
-                .filter { it.userId == userId }
+            // Begitu Worker menghapus data, UI otomatis hilang
+            launch {
+                db.pendingReportDao().getAllReportsFlow().collectLatest { localData ->
+                    _uiState.value = _uiState.value.copy(
+                        pendingList = localData.filter { it.userId == userId }
+                    )
+                }
+            }
 
-            _uiState.value = _uiState.value.copy(
-                pendingList = localData
-            )
-
-            // ✅ Load remote
+            // Load remote data (Sudah dipantau oleh setupRealtimeListener di bawahnya)
             fetchRemoteData(userId)
         }
     }

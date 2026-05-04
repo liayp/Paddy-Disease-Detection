@@ -104,7 +104,7 @@ fun ReportPreviewScreen(
                                 Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text("${index + 1}", Modifier.width(25.dp), fontSize = 9.sp)
                                     Text(report.created_at.take(10), Modifier.weight(1f), fontSize = 9.sp)
-                                    Text(report.label_ai, Modifier.weight(1.5f), fontSize = 9.sp)
+                                    report.label_ai?.let { Text(it, Modifier.weight(1.5f), fontSize = 9.sp) }
 
                                     val isPending = report.status == "menunggu_verifikasi" || report.status == "perlu_kunjungan"
                                     val statusColor = if(isPending) Color.Red else MaterialTheme.colorScheme.primary

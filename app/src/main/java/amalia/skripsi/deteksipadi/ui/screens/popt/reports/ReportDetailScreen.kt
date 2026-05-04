@@ -106,14 +106,16 @@ fun ReportDetailScreen(
                 ) { Icon(Icons.Default.ArrowBack, null, tint = Color.White) }
 
                 Column(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp)) {
-                    val acc = (reportData.confidence * 100).toInt()
-                    AssistChip(
-                        onClick = {},
-                        label = { Text("AKURASI AI: $acc%", color = Color.White) },
-                        colors = AssistChipDefaults.assistChipColors(containerColor = if(acc > 70) Color(0xFF2E7D32) else Color.Red),
-                        border = null
-                    )
-                    Text(text = reportData.label_ai, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White)
+                    val acc = (reportData.confidence?.times(100))?.toInt()
+                    if (acc != null) {
+                        AssistChip(
+                            onClick = {},
+                            label = { Text("AKURASI AI: $acc%", color = Color.White) },
+                            colors = AssistChipDefaults.assistChipColors(containerColor = if(acc > 70) Color(0xFF2E7D32) else Color.Red),
+                            border = null
+                        )
+                    }
+                    reportData.label_ai?.let { Text(text = it, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White) }
                 }
 
                 Icon(
@@ -136,7 +138,7 @@ fun ReportDetailScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 DetailItemRow(Icons.Default.LocationOn, "Lokasi Lapangan", reportData.alamat_lengkap ?: "-", Color(0xFF1976D2))
                 Spacer(modifier = Modifier.height(12.dp))
-                DetailItemRow(Icons.Default.Person, "ID Pelapor (Petani)", reportData.petani_id!!.take(8), Color(0xFF388E3C))
+                DetailItemRow(Icons.Default.Person, "ID Pelapor (Petani)", reportData.petani_id.take(8), Color(0xFF388E3C))
                 Spacer(modifier = Modifier.height(12.dp))
                 DetailItemRow(Icons.Default.CalendarToday, "Waktu Lapor", reportData.created_at.replace("T", " ").take(16), Color(0xFFF57C00))
 
@@ -379,7 +381,7 @@ fun ReportDetailScreen(
 }
 
 @Composable
-fun DetailItemRow(icon: ImageVector, label: String, value: String, color: Color) {
+fun DetailItemRow(icon: ImageVector, label: String, value: String?, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
@@ -392,7 +394,7 @@ fun DetailItemRow(icon: ImageVector, label: String, value: String, color: Color)
         Spacer(modifier = Modifier.width(16.dp))
         Column {
             Text(text = label, style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-            Text(text = value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            value?.let { Text(text = it, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold) }
         }
     }
 }

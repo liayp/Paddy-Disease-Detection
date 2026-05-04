@@ -7,6 +7,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "pending_reports")
 data class PendingReport(
@@ -16,7 +17,7 @@ data class PendingReport(
     val confidence: Float,
     val lat: Double,
     val lon: Double,
-    val kecamatanId: String? = null,   // lebih penting
+    val kecamatanId: String? = null,
     val kecamatan: String,
     val kelurahan: String,
     val addressDetail: String,
@@ -30,8 +31,13 @@ interface PendingReportDao {
     @Insert
     suspend fun insert(report: PendingReport)
 
+    // Fungsi untuk UploadWorker
     @Query("SELECT * FROM pending_reports")
     suspend fun getAllReports(): List<PendingReport>
+
+    // FUNGSI untuk UI Realtime
+    @Query("SELECT * FROM pending_reports")
+    fun getAllReportsFlow(): Flow<List<PendingReport>>
 
     @Query("DELETE FROM pending_reports WHERE id = :id")
     suspend fun deleteReport(id: Int)

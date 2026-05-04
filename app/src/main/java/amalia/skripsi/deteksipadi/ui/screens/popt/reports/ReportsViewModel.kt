@@ -267,7 +267,7 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
                 y += 20f
                 canvas.drawText("${index + 1}", 55f, y, paint)
                 canvas.drawText(it.created_at.take(10), 85f, y, paint)
-                canvas.drawText(it.label_ai, 185f, y, paint)
+                it.label_ai?.let { text -> canvas.drawText(text, 185f, y, paint) }
                 canvas.drawText(it.status.replace("_", " ").uppercase(), 450f, y, paint)
                 canvas.drawLine(50f, y + 5f, 545f, y + 5f, Paint().apply {
                     color = Color.LTGRAY

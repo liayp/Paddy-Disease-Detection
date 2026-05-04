@@ -36,7 +36,7 @@ class UploadWorker(
         NotificationHelper.showNotification(
             context = applicationContext,
             title = "Laporan Terkirim! ✅",
-            message = "Deteksi '$hamaLabel' berhasil diupload ke sistem peringatan dini.",
+            message = "Laporan suspek '$hamaLabel' berhasil diupload ke sistem peringatan dini.",
             channelId = "upload_channel",
             channelName = "Laporan Terkirim",
             intent = pendingIntent
@@ -51,11 +51,9 @@ class UploadWorker(
                 supabase.auth.loadFromStorage()
             }
             if (supabase.auth.currentSessionOrNull() == null) {
-                Log.e("UploadWorker", "User logout / token expired.")
                 return Result.failure()
             }
         } catch (e: Exception) {
-            Log.e("UploadWorker", "Auth Error: ${e.message}")
             return Result.retry()
         }
 
@@ -78,18 +76,16 @@ class UploadWorker(
                     var finalKel = report.kelurahan
                     var finalAddr = report.addressDetail
 
-                    // Fallback Reverse Geocoding jika lokasi belum valid
-                    if (finalKec.isBlank() || finalKec.contains("Tidak", true)) {
+                    // PENYELAMAT NYAWA: Jika offline sebelumnya gagal dapat alamat, cari ulang saat ini!
+                    if (finalKec.isBlank() || finalKec.contains("Tidak", ignoreCase = true)) {
                         val addressInfo = ImageUtils.getAddressName(context, report.lat, report.lon)
                         finalKec = addressInfo.first
                         finalKel = addressInfo.second
                         finalAddr = addressInfo.third
                     }
 
-                    // Merakit string Alamat Lengkap sesuai skema DB baru
                     val alamatLengkapGabungan = "$finalAddr, $finalKel, Kec. $finalKec"
-
-                    Log.d("UploadWorker", "Upload ID: ${report.id} User: ${report.userId}")
+                    val isManual = report.confidence == 0f
 
                     val dummyResult = DetectionResult(
                         box = RectF(0f, 0f, 0f, 0f),
@@ -106,7 +102,9 @@ class UploadWorker(
                         alamatLengkap = alamatLengkapGabungan,
                         userId = report.userId,
                         namaKecamatanDariGps = finalKec,
-                        deskripsiGejala = report.deskripsi_gejala
+                        deskripsiGejala = report.deskripsi_gejala,
+                        isManualMode = isManual,
+                        manualPestName = report.label
                     )
 
                     if (result.isSuccess) {
@@ -118,7 +116,7 @@ class UploadWorker(
                         isAllSuccess = false
                     }
                 } else {
-                    dao.deleteReport(report.id) // File hilang, hapus dari antrean
+                    dao.deleteReport(report.id)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

@@ -53,18 +53,29 @@ class HomeViewModel @Inject constructor(
 
     private fun setupRealtimeListener() {
         viewModelScope.launch {
-            realtimeChannel = supabase.realtime.channel("home_realtime")
-            val changeFlow = realtimeChannel!!.postgresChangeFlow<PostgresAction>(schema = "public") {
-                table = "laporan"
-            }
-            realtimeChannel!!.subscribe()
-            changeFlow.collect {
-                // Saat ada perubahan data laporan, refresh dashboard sesuai role terakhir
-                val profile = authRepo.getUserProfile()
-                profile?.let {
-                    if (it.role == "popt") loadPoptDashboard() else loadPetaniDashboard()
+            try {
+                // 1. Inisialisasi channel
+                realtimeChannel = supabase.realtime.channel("home_realtime")
+
+                // 2. DEFINISIKAN Flow/Filter TERLEBIH DAHULU (Penting!)
+                val changeFlow = realtimeChannel!!.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "laporan"
                 }
-                fetchGlobalHotspots()
+
+                // 3. BARU KEMUDIAN SUBSCRIBE
+                realtimeChannel!!.subscribe()
+
+                // 4. Collect datanya
+                changeFlow.collect {
+                    Log.d("REALTIME", "Data berubah, merefresh dashboard...")
+                    val profile = authRepo.getUserProfile()
+                    profile?.let {
+                        if (it.role == "popt") loadPoptDashboard() else loadPetaniDashboard()
+                    }
+                    fetchGlobalHotspots()
+                }
+            } catch (e: Exception) {
+                Log.e("REALTIME_ERROR", "Gagal inisialisasi: ${e.message}")
             }
         }
     }

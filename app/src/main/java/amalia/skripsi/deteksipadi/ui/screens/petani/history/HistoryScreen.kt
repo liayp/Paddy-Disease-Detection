@@ -186,6 +186,16 @@ fun HistoryScreen(
 @Composable
 fun RemoteReportCard(report: LaporanDto, onClick: () -> Unit) {
     val context = LocalContext.current
+    val statusColor = when(report.status) {
+        "ditolak" -> Color(0xFFD32F2F)
+        "selesai", "terverifikasi" -> Color(0xFF388E3C)
+        "perlu_kunjungan" -> Color(0xFF7B1FA2)
+        else -> Color(0xFFF57C00) // menunggu_verifikasi
+    }
+    val displayStatus = report.status.replace("_", " ").uppercase()
+    val displayLabel = report.label_ai ?: "Belum Teridentifikasi"
+    val displayAddress = report.alamat_lengkap ?: "Lokasi tidak diketahui"
+
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
@@ -197,22 +207,20 @@ fun RemoteReportCard(report: LaporanDto, onClick: () -> Unit) {
                 model = ImageRequest.Builder(context).data(report.foto_url).crossfade(true).build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(70.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
+                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
             )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    val statusColor = when(report.status) {
-                        "ditolak" -> Color.Red
-                        "selesai", "terverifikasi" -> Color(0xFF388E3C)
-                        else -> Color(0xFFF57C00)
+                    Surface(color = statusColor.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
+                        Text(displayStatus, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                     }
-                    Text(report.status.replace("_", " ").uppercase(), style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.Bold)
-                    Text(report.created_at.take(10), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    Text(report.created_at.take(10), fontSize = 13.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
                 }
+                Spacer(Modifier.height(8.dp))
+                Text(displayLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(4.dp))
-                Text(report.label_ai, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(report.alamat_lengkap ?: "Lokasi tidak diketahui", style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 1)
+                Text(displayAddress, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
     }
@@ -220,25 +228,30 @@ fun RemoteReportCard(report: LaporanDto, onClick: () -> Unit) {
 
 @Composable
 fun PendingReportCard(report: PendingReport) {
+    val displayLabel = report.label.ifBlank { "Belum Teridentifikasi" }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
-                model = File(report.imagePath),
+                model = java.io.File(report.imagePath),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(70.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
+                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
             )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text("MENUNGGU SINYAL", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                Surface(color = Color(0xFFD32F2F).copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
+                    Text("MENUNGGU UPLOAD", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(displayLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(4.dp))
-                Text(report.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(report.addressDetail, style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 1)
+                Text("${report.addressDetail}, Kec. ${report.kecamatan}", style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
     }

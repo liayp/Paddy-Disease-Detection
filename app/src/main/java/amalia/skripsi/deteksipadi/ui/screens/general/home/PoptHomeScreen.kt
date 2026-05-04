@@ -228,7 +228,7 @@ fun PoptStyleLatestReportCard(
 
                 // LABEL AI
                 Text(
-                    text = report.label,
+                    text = report.label!!,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -246,7 +246,7 @@ fun PoptStyleLatestReportCard(
                 // CONFIDENCE BAR
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LinearProgressIndicator(
-                        progress = report.confidence,
+                        progress = report.confidence!!,
                         modifier = Modifier
                             .width(90.dp)
                             .height(6.dp)
@@ -317,7 +317,7 @@ fun LegendItem(stat: PestStat) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(stat.color, CircleShape))
             Spacer(Modifier.width(8.dp))
-            Text(stat.label, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(stat.label!!, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
         Text(
             text = "${stat.verified} Selesai • ${stat.pending} Menunggu",

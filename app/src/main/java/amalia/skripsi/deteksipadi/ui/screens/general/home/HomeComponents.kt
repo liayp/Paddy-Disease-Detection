@@ -33,6 +33,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.util.Calendar
@@ -179,65 +180,40 @@ fun StatCard(icon: ImageVector, count: String, label: String, iconBgColor: Color
 @Composable
 fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
     val context = LocalContext.current
-
-    // Pewarnaan status baru menyesuaikan enum database
     val statusColor = when {
-        report.isFromLocal -> Color(0xFFF57C00)
-        report.status == "menunggu_verifikasi" -> Color(0xFFF57C00)
-        report.status == "perlu_kunjungan" -> Color(0xFF7B1FA2) // Warna ungu untuk visit
-        report.status == "terverifikasi" || report.status == "selesai" -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.error // ditolak
+        report.isFromLocal -> Color(0xFFD32F2F)
+        report.status == "ditolak" -> Color(0xFFD32F2F)
+        report.status == "selesai" || report.status == "terverifikasi" -> Color(0xFF388E3C)
+        report.status == "perlu_kunjungan" -> Color(0xFF7B1FA2)
+        else -> Color(0xFFF57C00)
     }
-
     val displayStatus = if(report.isFromLocal) "MENUNGGU UPLOAD" else report.status.replace("_", " ").uppercase()
+    val displayLabel = report.label ?: "Belum Teridentifikasi"
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.size(70.dp)) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context).data(report.imageUrl).crossfade(true).build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-
-                    Surface(
-                        color = statusColor.copy(alpha = 0.1f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = displayStatus,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = statusColor,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = ImageRequest.Builder(context).data(report.imageUrl).crossfade(true).build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = statusColor.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
+                        Text(displayStatus, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                     }
-
-                    Text(report.time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(report.time, fontSize = 13.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(report.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(
-                        progress = report.confidence,
-                        modifier = Modifier.width(80.dp).height(6.dp).clip(CircleShape),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("${(report.confidence * 100).toInt()}% Akurat", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                }
+                Spacer(Modifier.height(8.dp))
+                Text(displayLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(report.address!!, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, maxLines = 2)
             }
         }
     }
