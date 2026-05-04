@@ -44,6 +44,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.maps.android.compose.*
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
@@ -150,6 +151,37 @@ fun PetaScreen(
         }
     }
 
+    // LOGIKA ZOOM OTOMATIS SAAT FILTER KECAMATAN AKTIF
+    LaunchedEffect(petaViewModel.selectedKecamatanList) {
+        // Hanya jalan jika ada kecamatan yang di-filter dan poligonnya tersedia
+        if (petaViewModel.selectedKecamatanList.isNotEmpty() && petaViewModel.currentPolygons.isNotEmpty()) {
+            try {
+                val boundsBuilder = LatLngBounds.Builder()
+                var hasPoints = false
+
+                // Kumpulkan semua titik koordinat dari poligon yang terpilih
+                petaViewModel.currentPolygons.forEach { polygonPoints ->
+                    polygonPoints.forEach { point ->
+                        boundsBuilder.include(point)
+                        hasPoints = true
+                    }
+                }
+
+                if (hasPoints) {
+                    val bounds = boundsBuilder.build()
+                    isAutoFollowActive = false
+                    scope.launch {
+                        cameraPositionState.animate(
+                            CameraUpdateFactory.newLatLngBounds(bounds, 150)
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun toggleService(active: Boolean) {
         val intent = Intent(context, HazardDetectionService::class.java)
         if (active) {
@@ -177,6 +209,15 @@ fun PetaScreen(
             onMapClick = { selectedHotspot = null }
         ) {
             if (isOnline) {
+                petaViewModel.currentPolygons.forEach { polygonPoints ->
+                    Polygon(
+                        points = polygonPoints,
+                        fillColor = Color(0x220078D4),
+                        strokeColor = Color(0xFF0078D4),
+                        strokeWidth = 3f
+                    )
+                }
+
                 petaViewModel.filteredHotspots.forEach { spot ->
                     val pos = LatLng(spot.lat, spot.lon)
 

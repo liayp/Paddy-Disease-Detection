@@ -33,11 +33,6 @@ data class ProfileDto(
 )
 
 @Serializable
-data class KecamatanDto(
-    val nama_kecamatan: String
-)
-
-@Serializable
 data class PoptWilayahDto(
     val kecamatan: KecamatanDto? = null
 )

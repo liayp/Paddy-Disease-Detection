@@ -2,12 +2,18 @@ package amalia.skripsi.deteksipadi.ui.screens.general.peta
 
 import amalia.skripsi.deteksipadi.data.HazardRepository
 import amalia.skripsi.deteksipadi.data.LaporanDto
+import amalia.skripsi.deteksipadi.data.KecamatanDto
+import amalia.skripsi.deteksipadi.data.fetchSemuaKecamatan
+import amalia.skripsi.deteksipadi.data.parseGeoJsonToLatLng
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.google.android.gms.maps.model.LatLng
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.launch
 import java.util.*
 import javax.inject.Inject
 
@@ -19,16 +25,27 @@ class PetaViewModel @Inject constructor(
     private var allHotspots = listOf<LaporanDto>()
     var filteredHotspots by mutableStateOf<List<LaporanDto>>(emptyList())
 
+    // State untuk Kecamatan & Poligon
+    var semuaKecamatan by mutableStateOf<List<KecamatanDto>>(emptyList())
+    var currentPolygons by mutableStateOf<List<List<LatLng>>>(emptyList())
+
     val isDanger = hazardRepo.isDanger
     val currentDistance = hazardRepo.currentDistance
 
     var selectedTimeRange by mutableStateOf("Semua")
     var selectedHama by mutableStateOf("Semua Hama")
-    var selectedKecamatan by mutableStateOf("")
+    var selectedKecamatanList by mutableStateOf<List<String>>(emptyList())
     var startDateMillis by mutableStateOf<Long?>(null)
     var endDateMillis by mutableStateOf<Long?>(null)
     var selectedMonth by mutableIntStateOf(Calendar.getInstance().get(Calendar.MONTH))
     var selectedYear by mutableIntStateOf(Calendar.getInstance().get(Calendar.YEAR))
+
+    init {
+        // Tarik data master kecamatan di awal
+        viewModelScope.launch {
+            semuaKecamatan = fetchSemuaKecamatan()
+        }
+    }
 
     fun setInitialData(data: List<LaporanDto>) {
         allHotspots = data
@@ -42,7 +59,7 @@ class PetaViewModel @Inject constructor(
     fun resetFilter() {
         selectedTimeRange = "Semua"
         selectedHama = "Semua Hama"
-        selectedKecamatan = ""
+        selectedKecamatanList = emptyList()
         startDateMillis = null
         endDateMillis = null
         selectedMonth = Calendar.getInstance().get(Calendar.MONTH)
@@ -53,16 +70,33 @@ class PetaViewModel @Inject constructor(
     fun applyFilter() {
         val today = Calendar.getInstance()
 
+        // Kumpulkan semua poligon dari kecamatan yang dipilih
+        val polygons = mutableListOf<List<LatLng>>()
+        val targetKecamatan = if (selectedKecamatanList.isNotEmpty()) {
+            semuaKecamatan.filter { selectedKecamatanList.contains(it.nama_kecamatan) }
+        } else {
+            semuaKecamatan
+        }
+
+        targetKecamatan.forEach { kec ->
+            val parsed = parseGeoJsonToLatLng(kec.polygon_geojson)
+            polygons.addAll(parsed)
+        }
+        currentPolygons = polygons
+
+        // 2. Filter Hotspot
         filteredHotspots = allHotspots.filter { spot ->
             val matchHama = if (selectedHama == "Semua Hama") true else spot.label_ai == selectedHama
-            val matchLoc = if (selectedKecamatan.isEmpty()) true
-            else spot.alamat_lengkap?.contains(selectedKecamatan, ignoreCase = true) == true
+
+            // Cek apakah alamat laporan mengandung salah satu nama kecamatan yang dipilih
+            val matchLoc = if (selectedKecamatanList.isEmpty()) true
+            else selectedKecamatanList.any { kecName ->
+                spot.alamat_lengkap?.contains(kecName, ignoreCase = true) == true
+            }
 
             val spotTime = try {
                 val parts = spot.created_at.split("T")[0].split("-")
-                Calendar.getInstance().apply {
-                    set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt())
-                }.time
+                Calendar.getInstance().apply { set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt()) }.time
             } catch (e: Exception) { null }
 
             val matchTime = when (selectedTimeRange) {

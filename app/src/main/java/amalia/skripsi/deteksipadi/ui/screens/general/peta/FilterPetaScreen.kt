@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties
 import androidx.navigation.NavController
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,46 +35,41 @@ fun FilterPetaScreen(
     val dateRangePickerState = rememberDateRangePickerState()
     var showDatePicker by remember { mutableStateOf(false) }
 
+    var searchText by remember { mutableStateOf("") }
+
+    var tempSelectedKecamatan by remember { mutableStateOf(viewModel.selectedKecamatanList) }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Filter Peta Sebaran", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, null)
-                    }
-                },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) } },
                 actions = {
-                    TextButton(onClick = { viewModel.resetFilter() }) {
-                        Text("Reset", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
+                    TextButton(onClick = {
+                        searchText = ""
+                        tempSelectedKecamatan = emptyList()
+                        viewModel.resetFilter()
+                    }) { Text("Reset", color = Color.White, fontWeight = FontWeight.Bold) }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, titleContentColor = Color.White, navigationIconContentColor = Color.White)
             )
         },
         bottomBar = {
             Button(
                 onClick = {
+                    viewModel.selectedKecamatanList = tempSelectedKecamatan
                     viewModel.applyFilter()
                     navController.popBackStack()
                 },
                 modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp),
                 shape = RoundedCornerShape(50),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) {
-                Text("Terapkan Filter", fontWeight = FontWeight.Bold)
-            }
+            ) { Text("Terapkan Filter", fontWeight = FontWeight.Bold) }
         }
     ) { padding ->
-        Column(
-            modifier = Modifier.padding(padding).fillMaxSize()
-                .background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())
-        ) {
-            // --- RENTANG WAKTU ---
+        Column(modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())) {
+
+            // --- RENTANG WAKTU (Biarkan seperti kode Anda) ---
             Text("Rentang Waktu Laporan", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
             Column(modifier = Modifier.background(Color.Transparent)) {
                 timeOptions.forEach { option ->
@@ -96,27 +92,69 @@ fun FilterPetaScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // --- LOKASI KECAMATAN ---
-            Text("Pencarian Area (Kecamatan/Desa)", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
+            // --- PENCARIAN KECAMATAN MULTI-SELECT ---
+            Text("Pencarian Area (Pilih beberapa kecamatan)", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
+
+            // Chips untuk kecamatan yang sudah dipilih
+            if (tempSelectedKecamatan.isNotEmpty()) {
+                FlowRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    tempSelectedKecamatan.forEach { kecName ->
+                        InputChip(
+                            selected = true,
+                            onClick = { tempSelectedKecamatan = tempSelectedKecamatan - kecName },
+                            label = { Text(kecName) },
+                            trailingIcon = { Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                }
+            }
+
+            // Search Bar
             OutlinedTextField(
-                value = viewModel.selectedKecamatan,
-                onValueChange = { viewModel.selectedKecamatan = it },
+                value = searchText,
+                onValueChange = { searchText = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                placeholder = { Text("Ketik nama wilayah...") },
-                leadingIcon = { Icon(Icons.Default.LocationOn, null) },
-                shape = RoundedCornerShape(50),
-                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
+                placeholder = { Text("Ketik nama kecamatan...") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = {
+                    if (searchText.isNotBlank()) IconButton(onClick = { searchText = "" }) { Icon(Icons.Default.Close, null) }
+                },
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
             )
+
+            // Daftar Saran Kecamatan (Hanya muncul jika diketik)
+            if (searchText.isNotBlank()) {
+                val filteredKecamatan = viewModel.semuaKecamatan.filter {
+                    it.nama_kecamatan.contains(searchText, ignoreCase = true) && !tempSelectedKecamatan.contains(it.nama_kecamatan)
+                }
+
+                if (filteredKecamatan.isNotEmpty()) {
+                    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), elevation = CardDefaults.cardElevation(4.dp)) {
+                        Column {
+                            filteredKecamatan.take(4).forEach { kec ->
+                                ListItem(
+                                    headlineContent = { Text(kec.nama_kecamatan, fontWeight = FontWeight.Bold) },
+                                    modifier = Modifier.clickable {
+                                        tempSelectedKecamatan = tempSelectedKecamatan + kec.nama_kecamatan
+                                        searchText = "" // Reset pencarian setelah pilih
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             Spacer(Modifier.height(16.dp))
 
-            // --- JENIS HAMA ---
+            // --- JENIS HAMA (Biarkan seperti kode Anda) ---
             Text("Jenis Hama / Penyakit", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray)
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable { showHamaSheet = true },
-                shape = RoundedCornerShape(50),
-                border = BorderStroke(1.dp, Color.Gray),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                shape = RoundedCornerShape(50), border = BorderStroke(1.dp, Color.Gray), colors = CardDefaults.cardColors(containerColor = Color.Transparent)
             ) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.BugReport, null, tint = MaterialTheme.colorScheme.primary)

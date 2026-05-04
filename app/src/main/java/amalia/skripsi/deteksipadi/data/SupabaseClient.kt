@@ -1,6 +1,8 @@
 package amalia.skripsi.deteksipadi.data
 
 import amalia.skripsi.deteksipadi.ml.DetectionResult
+import android.util.Log
+import com.google.android.gms.maps.model.LatLng
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
@@ -14,8 +16,14 @@ import io.github.jan.supabase.storage.storage
 import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 val supabase = createSupabaseClient(
     supabaseUrl = "https://rhlixmoadeexgvrbxkmo.supabase.co",
@@ -88,6 +96,13 @@ data class LaporanInsertDto(
     val jenis_pelaporan: String,
     val prioritas: String,
     val status: String = "menunggu_verifikasi"
+)
+
+@Serializable
+data class KecamatanDto(
+    val id: String,
+    val nama_kecamatan: String,
+    val polygon_geojson: String?
 )
 
 @Serializable
@@ -279,18 +294,52 @@ data class LocationValidationDto(
     @SerialName("nama_kecamatan") val kecName: String?
 )
 
-suspend fun checkLocationGeofence(lat: Double, lon: Double): LocationValidationDto? {
+suspend fun fetchSemuaKecamatan(): List<KecamatanDto> {
     return try {
-        supabase.postgrest.rpc(
-            function = "check_location_validity",
-            parameters = buildJsonObject {
-                put("user_lat", JsonPrimitive(lat))
-                put("user_lon", JsonPrimitive(lon))
-            }
-        ).decodeSingle<LocationValidationDto>()
+        supabase.from("vw_kecamatan_geojson").select().decodeList<KecamatanDto>()
     } catch (e: Exception) {
-        null
+        Log.e("KECAMATAN_DEBUG", "Gagal fetch kecamatan: ${e.message}")
+        emptyList()
     }
+}
+
+fun parseGeoJsonToLatLng(geoJsonString: String?): List<List<LatLng>> {
+    if (geoJsonString.isNullOrBlank()) return emptyList()
+    val polygons = mutableListOf<List<LatLng>>()
+    try {
+        val geoJson = Json.parseToJsonElement(geoJsonString).jsonObject
+        val type = geoJson["type"]?.jsonPrimitive?.content
+        val coordinates = geoJson["coordinates"]?.jsonArray ?: return emptyList()
+
+        when (type) {
+            "MultiPolygon" -> {
+                for (multiPolygonElement in coordinates) {
+                    val polygonArray = multiPolygonElement.jsonArray
+                    if (polygonArray.isNotEmpty()) {
+                        val outerRing = polygonArray[0].jsonArray // Ambil cincin luar saja
+                        val latLngs = outerRing.mapNotNull { coord ->
+                            val pt = coord.jsonArray
+                            if (pt.size >= 2) LatLng(pt[1].jsonPrimitive.double, pt[0].jsonPrimitive.double) else null
+                        }
+                        polygons.add(latLngs)
+                    }
+                }
+            }
+            "Polygon" -> {
+                if (coordinates.isNotEmpty()) {
+                    val outerRing = coordinates[0].jsonArray
+                    val latLngs = outerRing.mapNotNull { coord ->
+                        val pt = coord.jsonArray
+                        if (pt.size >= 2) LatLng(pt[1].jsonPrimitive.double, pt[0].jsonPrimitive.double) else null
+                    }
+                    polygons.add(latLngs)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("GEOJSON_ERROR", "Gagal parsing GeoJSON: ${e.message}\nData: $geoJsonString")
+    }
+    return polygons
 }
 
 suspend fun fetchMasterHama(): List<MasterHamaDto> {
