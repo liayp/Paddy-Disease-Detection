@@ -14,8 +14,8 @@ import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeViewModel
 import amalia.skripsi.deteksipadi.ui.screens.general.home.PetaniHomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.home.PoptHomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.notification.NotificationScreen
+import amalia.skripsi.deteksipadi.ui.screens.general.profile.ChangePasswordScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.profile.EditProfileScreen
-import amalia.skripsi.deteksipadi.ui.screens.general.report.UpdateLahanScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.report.PetaniReportDetailScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsViewModel
@@ -217,6 +217,13 @@ fun MainScreen(
                 )
             }
 
+            composable("change_password") {
+                ChangePasswordScreen(
+                    navController = navController,
+                    profileViewModel = profileViewModel
+                )
+            }
+
             composable("notifications") {
                 NotificationScreen(
                     navController = navController,
@@ -242,6 +249,50 @@ fun MainScreen(
 
             composable(SCANNER_ROUTE) {
                 DetectionScreen(navController = navController, homeViewModel = hiltViewModel(), mode = "Laporan_Baru")
+            }
+
+            // 1. Rute baru untuk MAP KSA-STYLE
+            composable(
+                route = "geofence_update/{id}/{lat}/{lon}",
+                arguments = listOf(
+                    navArgument("id") { type = NavType.StringType },
+                    navArgument("lat") { type = NavType.StringType },
+                    navArgument("lon") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getString("id") ?: ""
+                val lat = backStackEntry.arguments?.getString("lat")?.toDoubleOrNull() ?: 0.0
+                val lon = backStackEntry.arguments?.getString("lon")?.toDoubleOrNull() ?: 0.0
+
+                amalia.skripsi.deteksipadi.ui.screens.general.report.UpdateLahanMapScreen(
+                    navController = navController,
+                    laporanId = id,
+                    targetLat = lat,
+                    targetLon = lon
+                )
+            }
+
+            // 2. Rute untuk Kamera (Dipanggil DARI dalam UpdateLahanScreen setelah valid)
+            composable(
+                route = "camera_update/{id}/{lat}/{lon}",
+                arguments = listOf(
+                    navArgument("id") { type = NavType.StringType },
+                    navArgument("lat") { type = NavType.StringType },
+                    navArgument("lon") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getString("id")
+                val lat = backStackEntry.arguments?.getString("lat")?.toDoubleOrNull()
+                val lon = backStackEntry.arguments?.getString("lon")?.toDoubleOrNull()
+
+                DetectionScreen(
+                    navController = navController,
+                    homeViewModel = hiltViewModel(),
+                    mode = "Update_Lahan",
+                    laporanId = id,
+                    targetLat = lat,
+                    targetLon = lon
+                )
             }
 
             composable(

@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.workers
 
 import amalia.skripsi.deteksipadi.MainActivity
+import amalia.skripsi.deteksipadi.data.getKecamatanIdByCoordinate
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.submitReportToSupabase
 import amalia.skripsi.deteksipadi.data.supabase
@@ -23,7 +24,7 @@ class UploadWorker(
     workerParams: WorkerParameters
 ) : CoroutineWorker(context, workerParams) {
 
-    private fun sendSuccessNotification(hamaLabel: String) {
+    private fun sendNotification(title: String, message: String) {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("navigate_to", "history")
@@ -32,30 +33,14 @@ class UploadWorker(
             applicationContext, 0, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-
-        NotificationHelper.showNotification(
-            context = applicationContext,
-            title = "Laporan Terkirim! ✅",
-            message = "Laporan suspek '$hamaLabel' berhasil diupload ke sistem peringatan dini.",
-            channelId = "upload_channel",
-            channelName = "Laporan Terkirim",
-            intent = pendingIntent
-        )
+        NotificationHelper.showNotification(applicationContext, title, message, "upload_channel", "Upload Status", pendingIntent)
     }
 
     override suspend fun doWork(): Result {
-        Log.d("UploadWorker", "--- WORKER DIMULAI ---")
-
         try {
-            if (supabase.auth.currentSessionOrNull() == null) {
-                supabase.auth.loadFromStorage()
-            }
-            if (supabase.auth.currentSessionOrNull() == null) {
-                return Result.failure()
-            }
-        } catch (e: Exception) {
-            return Result.retry()
-        }
+            if (supabase.auth.currentSessionOrNull() == null) supabase.auth.loadFromStorage()
+            if (supabase.auth.currentSessionOrNull() == null) return Result.failure()
+        } catch (e: Exception) { return Result.retry() }
 
         val context = applicationContext
         val db = Room.databaseBuilder(context, AppDatabase::class.java, "padi-database").build()
@@ -68,6 +53,16 @@ class UploadWorker(
 
         for (report in pendingReports) {
             try {
+                // VALIDASI KETAT OFFLINE TO ONLINE
+                val kecId = getKecamatanIdByCoordinate(report.lat, report.lon)
+                if (kecId == null) {
+                    // Laporan di luar area saat offline -> Ditolak keras, dihapus.
+                    dao.deleteReport(report.id)
+                    File(report.imagePath).delete()
+                    sendNotification("Laporan Ditolak ❌", "Laporan offline '${report.label}' dibatalkan karena titik koordinat berada di luar wilayah cakupan sistem.")
+                    continue // Lanjut ke laporan berikutnya
+                }
+
                 val file = File(report.imagePath)
                 if (file.exists()) {
                     val bytes = file.readBytes()
@@ -76,8 +71,7 @@ class UploadWorker(
                     var finalKel = report.kelurahan
                     var finalAddr = report.addressDetail
 
-                    // PENYELAMAT NYAWA: Jika offline sebelumnya gagal dapat alamat, cari ulang saat ini!
-                    if (finalKec.isBlank() || finalKec.contains("Tidak", ignoreCase = true)) {
+                    if (finalKec.isBlank() || finalKec.contains("Tidak", true)) {
                         val addressInfo = ImageUtils.getAddressName(context, report.lat, report.lon)
                         finalKec = addressInfo.first
                         finalKel = addressInfo.second
@@ -87,39 +81,25 @@ class UploadWorker(
                     val alamatLengkapGabungan = "$finalAddr, $finalKel, Kec. $finalKec"
                     val isManual = report.confidence == 0f
 
-                    val dummyResult = DetectionResult(
-                        box = RectF(0f, 0f, 0f, 0f),
-                        label = report.label,
-                        score = report.confidence,
-                        labelIndex = 0
-                    )
+                    val dummyResult = DetectionResult(box = RectF(0f, 0f, 0f, 0f), label = report.label, score = report.confidence, labelIndex = 0)
 
                     val result = submitReportToSupabase(
-                        photoBytes = bytes,
-                        results = listOf(dummyResult),
-                        lat = report.lat,
-                        lon = report.lon,
-                        alamatLengkap = alamatLengkapGabungan,
-                        userId = report.userId,
-                        namaKecamatanDariGps = finalKec,
-                        deskripsiGejala = report.deskripsi_gejala,
-                        isManualMode = isManual,
-                        manualPestName = report.label
+                        photoBytes = bytes, results = listOf(dummyResult), lat = report.lat, lon = report.lon,
+                        alamatLengkap = alamatLengkapGabungan, userId = report.userId,
+                        deskripsiGejala = report.deskripsi_gejala, isManualMode = isManual, manualPestName = report.label
                     )
 
                     if (result.isSuccess) {
                         dao.deleteReport(report.id)
                         file.delete()
-                        sendSuccessNotification(report.label)
+                        sendNotification("Laporan Terkirim! ✅", "Deteksi '$finalKec' berhasil diupload ke sistem peringatan dini.")
                     } else {
-                        Log.e("UploadWorker", "Gagal Upload: ${result.exceptionOrNull()}")
                         isAllSuccess = false
                     }
                 } else {
                     dao.deleteReport(report.id)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
                 isAllSuccess = false
             }
         }

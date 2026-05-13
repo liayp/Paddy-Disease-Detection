@@ -1,6 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.history
 
 import amalia.skripsi.deteksipadi.data.AuthRepository
+import amalia.skripsi.deteksipadi.data.LAPORAN_COLUMNS
 import amalia.skripsi.deteksipadi.data.LaporanDto
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.local.PendingReport
@@ -16,7 +17,6 @@ import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
-import io.github.jan.supabase.realtime.decodeRecord
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,9 +26,10 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class HistoryUiState(
-    val pendingList: List<PendingReport> = emptyList(),
-    val processList: List<LaporanDto> = emptyList(),
-    val finishedList: List<LaporanDto> = emptyList(),
+    val pendingLocalList: List<PendingReport> = emptyList(),
+    val waitingRemoteList: List<LaporanDto> = emptyList(), // Menunggu Verifikasi
+    val processRemoteList: List<LaporanDto> = emptyList(), // Terverifikasi & Perlu Kunjungan
+    val finishedRemoteList: List<LaporanDto> = emptyList(), // Selesai & Ditolak
     val isLoading: Boolean = true
 )
 
@@ -58,16 +59,15 @@ class HistoryViewModel @Inject constructor(
                 return@launch
             }
 
-            // Begitu Worker menghapus data, UI otomatis hilang
+            // Memantau data lokal (Offline)
             launch {
                 db.pendingReportDao().getAllReportsFlow().collectLatest { localData ->
                     _uiState.value = _uiState.value.copy(
-                        pendingList = localData.filter { it.userId == userId }
+                        pendingLocalList = localData.filter { it.userId == userId }
                     )
                 }
             }
 
-            // Load remote data (Sudah dipantau oleh setupRealtimeListener di bawahnya)
             fetchRemoteData(userId)
         }
     }
@@ -81,15 +81,12 @@ class HistoryViewModel @Inject constructor(
             val flow = realtimeChannel!!
                 .postgresChangeFlow<PostgresAction>(schema = "public") {
                     table = "laporan"
-
-                    // ✅ FIX FILTER (tidak error lagi)
                     filter("petani_id", FilterOperator.EQ, userId)
                 }
 
             realtimeChannel!!.subscribe()
 
             flow.collectLatest {
-                // 🔥 setiap ada perubahan → fetch ulang
                 fetchRemoteData(userId)
             }
         }
@@ -98,30 +95,18 @@ class HistoryViewModel @Inject constructor(
     private suspend fun fetchRemoteData(userId: String) {
         try {
             val remoteData = supabase.from("laporan")
-                .select(
-                    columns = Columns.raw(
-                        "id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon"
-                    )
-                ) {
+                .select(columns = Columns.raw(LAPORAN_COLUMNS)) {
                     filter { eq("petani_id", userId) }
                     order("created_at", Order.DESCENDING)
                 }
                 .decodeList<LaporanDto>()
 
             _uiState.value = _uiState.value.copy(
-                processList = remoteData.filter {
-                    it.status == "menunggu" ||
-                            it.status == "menunggu_verifikasi" ||
-                            it.status == "perlu_kunjungan"
-                },
-                finishedList = remoteData.filter {
-                    it.status == "terverifikasi" ||
-                            it.status == "selesai" ||
-                            it.status == "ditolak"
-                },
+                waitingRemoteList = remoteData.filter { it.status == "menunggu" || it.status == "menunggu_verifikasi" },
+                processRemoteList = remoteData.filter { it.status == "terverifikasi" || it.status == "perlu_kunjungan" },
+                finishedRemoteList = remoteData.filter { it.status == "selesai" || it.status == "ditolak" },
                 isLoading = false
             )
-
         } catch (e: Exception) {
             _uiState.value = _uiState.value.copy(isLoading = false)
         }
@@ -129,10 +114,6 @@ class HistoryViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-
-        viewModelScope.launch {
-            // ✅ FIX: tidak pakai leave()
-            realtimeChannel?.unsubscribe()
-        }
+        viewModelScope.launch { realtimeChannel?.unsubscribe() }
     }
 }

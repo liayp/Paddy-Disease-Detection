@@ -192,15 +192,6 @@ fun DetectionScreen(
                         val loc = reportLocation
 
                         if (loc != null && rawBmp != null) {
-                            if (mode == "Update_Lahan" && targetLat != null && targetLon != null){
-                                val distance = amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils.calculateDistance(
-                                    loc.first, loc.second, targetLat, targetLon
-                                )
-                                if(distance > 20.0){
-                                    Toast.makeText(context, "Gagal! Anda terlalu jauh dari lokasi awal (Jarak:  ${distance.toInt()}m)", Toast.LENGTH_LONG).show()
-                                    return@ResultSheetContent
-                                }
-                            }
                             val currentUser = supabase.auth.currentUserOrNull()
                             val userId = currentUser?.id ?: ""
                             val hasInternet = isOnline(context)
@@ -209,7 +200,6 @@ fun DetectionScreen(
                                 withContext(Dispatchers.Main) { isUploading = true }
 
                                 val finalBitmap = ImageUtils.drawDetectionOnBitmap(rawBmp, detectionResults)
-
                                 val stream = ByteArrayOutputStream()
                                 finalBitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
                                 val photoBytes = stream.toByteArray()
@@ -228,53 +218,56 @@ fun DetectionScreen(
                                     } else {
                                         submitReportToSupabase(
                                             photoBytes = photoBytes, results = detectionResults, lat = loc.first, lon = loc.second,
-                                            alamatLengkap = alamatLengkapGabungan, namaKecamatanDariGps = addressInfo.first,
-                                            userId = userId, deskripsiGejala = inputDeskripsi,
+                                            alamatLengkap = alamatLengkapGabungan, userId = userId, deskripsiGejala = inputDeskripsi,
                                             isManualMode = isManualMode, manualPestName = manualPestSelection
                                         )
                                     }
 
-                                    if (result.isSuccess) {
-                                        withContext(Dispatchers.Main) {
-                                            isUploading = false
-                                            if (mode == "Update_Lahan"){
-                                                Toast.makeText(context, "Data Update berhasil dikirim!", Toast.LENGTH_LONG).show()
+                                    withContext(Dispatchers.Main) {
+                                        isUploading = false
+                                        if (result.isSuccess) {
+                                            if (mode == "Update_Lahan") {
+                                                Toast.makeText(context, "Data Update Lahan berhasil dikirim!", Toast.LENGTH_LONG).show()
+                                                // Navigasi mundur ke halaman riwayat atau map yang memanggilnya
                                                 navController.popBackStack()
                                             } else {
                                                 showSuccessDialog = true
                                             }
-                                        }
-                                    } else {
-                                        // GAGAL UPLOAD SAAT ONLINE: Simpan ke Room DB HARUS tetap di Dispatchers.IO
-                                        saveToLocalAndQueue(
-                                            context = context, bmpWithBox = finalBitmap, results = detectionResults,
-                                            loc = loc, addr = addressInfo, userId = userId, deskripsi = inputDeskripsi,
-                                            isManualMode = isManualMode, manualPestName = manualPestSelection
-                                        )
-                                        withContext(Dispatchers.Main) {
-                                            isUploading = false
-                                            Toast.makeText(context, "Gagal terhubung server. Laporan diamankan ke mode offline.", Toast.LENGTH_LONG).show()
-                                            onReset()
+                                        } else {
+                                            // CEK APAKAH DITOLAK KARENA OUT OF BOUNDS
+                                            val errorMsg = result.exceptionOrNull()?.message ?: ""
+                                            if (errorMsg.contains("OUT_OF_BOUNDS")) {
+                                                Toast.makeText(context, "DITOLAK: Lokasi Anda berada di luar wilayah cakupan sistem kami.", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                // Error jaringan, simpan offline
+                                                if (mode != "Update_Lahan") {
+                                                    saveToLocalAndQueue(
+                                                        context = context, bmpWithBox = finalBitmap, results = detectionResults,
+                                                        loc = loc, addr = addressInfo, userId = userId, deskripsi = inputDeskripsi,
+                                                        isManualMode = isManualMode, manualPestName = manualPestSelection
+                                                    )
+                                                    Toast.makeText(context, "Gagal terhubung server. Laporan diamankan ke mode offline.", Toast.LENGTH_LONG).show()
+                                                    onReset()
+                                                } else {
+                                                    Toast.makeText(context, "Gagal upload update lahan. Pastikan internet stabil.", Toast.LENGTH_LONG).show()
+                                                }
+                                            }
                                         }
                                     }
                                 } else {
-                                    // MODE MURNI OFFLINE
-                                    if (mode == "Laporan_Baru") {
-                                        // Eksekusi I/O database Room dengan aman
-                                        saveToLocalAndQueue(
-                                            context = context, bmpWithBox = finalBitmap, results = detectionResults,
-                                            loc = loc, addr = addressInfo, userId = userId, deskripsi = inputDeskripsi,
-                                            isManualMode = isManualMode, manualPestName = manualPestSelection
-                                        )
-                                        withContext(Dispatchers.Main) {
-                                            isUploading = false
+                                    // OFFLINE MODE
+                                    withContext(Dispatchers.Main) {
+                                        isUploading = false
+                                        if (mode == "Laporan_Baru") {
+                                            saveToLocalAndQueue(
+                                                context = context, bmpWithBox = finalBitmap, results = detectionResults,
+                                                loc = loc, addr = addressInfo, userId = userId, deskripsi = inputDeskripsi,
+                                                isManualMode = isManualMode, manualPestName = manualPestSelection
+                                            )
                                             Toast.makeText(context, "Tidak ada internet. Laporan tersimpan offline dan akan dikirim otomatis nanti.", Toast.LENGTH_LONG).show()
                                             onReset()
-                                        }
-                                    } else {
-                                        withContext(Dispatchers.Main) {
-                                            isUploading = false
-                                            Toast.makeText(context, "Update lahan wajib membutuhkan internet.", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(context, "Fitur Update Lahan wajib menggunakan internet.", Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 }
@@ -377,7 +370,6 @@ suspend fun saveToLocalAndQueue(
     bmpWithBox.compress(Bitmap.CompressFormat.JPEG, 70, fileStream)
     fileStream.close()
 
-    // REVISI LOGIKA NAMA HAMA
     val finalLabel = if (isManualMode) {
         if (manualPestName.isBlank()) "Belum Teridentifikasi" else manualPestName
     } else {
@@ -393,7 +385,7 @@ suspend fun saveToLocalAndQueue(
         confidence = finalScore,
         lat = loc.first,
         lon = loc.second,
-        kecamatan = addr.first,
+        kecamatan = addr.first, // Disimpan sebagai String (Human Readable Text), relasi database nanti dihitung worker
         kelurahan = addr.second,
         addressDetail = addr.third,
         userId = userId,

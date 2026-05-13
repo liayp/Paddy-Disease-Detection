@@ -33,6 +33,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -86,7 +87,7 @@ fun HistoryScreen(
         historyViewModel.loadHistory()
     }
 
-    val tabs = listOf("Tertunda", "Diproses", "Selesai")
+    val tabs = listOf("Menunggu", "Diproses", "Selesai")
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
 
@@ -123,9 +124,9 @@ fun HistoryScreen(
                 ) {
                     tabs.forEachIndexed { index, title ->
                         val count = when (index) {
-                            0 -> state.pendingList.size
-                            1 -> if (isOnline) state.processList.size else 0
-                            2 -> if (isOnline) state.finishedList.size else 0
+                            0 -> state.pendingLocalList.size + (if (isOnline) state.waitingRemoteList.size else 0)
+                            1 -> if (isOnline) state.processRemoteList.size else 0
+                            2 -> if (isOnline) state.finishedRemoteList.size else 0
                             else -> 0
                         }
 
@@ -134,7 +135,7 @@ fun HistoryScreen(
                             onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                     if (count > 0) {
                                         Spacer(Modifier.width(6.dp))
                                         Badge(containerColor = MaterialTheme.colorScheme.error) { Text(count.toString()) }
@@ -151,28 +152,41 @@ fun HistoryScreen(
                     verticalAlignment = Alignment.Top
                 ) { page ->
                     when (page) {
-                        0 -> {
-                            if (state.pendingList.isEmpty()) {
-                                EmptyHistoryState(isOffline = false)
+                        0 -> { // TAB MENUNGGU (Local + Remote Menunggu)
+                            val combinedList = state.pendingLocalList + state.waitingRemoteList
+
+                            if (combinedList.isEmpty()) {
+                                EmptyHistoryState(isOffline = false, message = "Belum ada laporan yang menunggu verifikasi.")
                             } else {
                                 LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 16.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    items(state.pendingList) { report -> PendingReportCard(report) }
+                                    items(state.pendingLocalList) { report -> PendingReportCard(report) }
+                                    items(state.waitingRemoteList) { report -> RemoteReportCard(report, onClick = { onNavigateToDetail(report) }) }
                                 }
                             }
                         }
-                        1, 2 -> {
+                        1 -> { // TAB DIPROSES (Perlu Kunjungan & Terverifikasi)
                             if (!isOnline) {
                                 EmptyHistoryState(isOffline = true)
                             } else if (state.isLoading) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                            } else if (state.processRemoteList.isEmpty()) {
+                                EmptyHistoryState(isOffline = false, message = "Tidak ada laporan yang sedang ditindaklanjuti POPT.")
                             } else {
-                                val list = if (page == 1) state.processList else state.finishedList
-                                if (list.isEmpty()) {
-                                    EmptyHistoryState(isOffline = false)
-                                } else {
-                                    LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 16.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        items(list) { report -> RemoteReportCard(report, onClick = { onNavigateToDetail(report) }) }
-                                    }
+                                LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 16.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    items(state.processRemoteList) { report -> RemoteReportCard(report, onClick = { onNavigateToDetail(report) }) }
+                                }
+                            }
+                        }
+                        2 -> { // TAB SELESAI (Selesai & Ditolak)
+                            if (!isOnline) {
+                                EmptyHistoryState(isOffline = true)
+                            } else if (state.isLoading) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                            } else if (state.finishedRemoteList.isEmpty()) {
+                                EmptyHistoryState(isOffline = false, message = "Belum ada laporan yang berstatus selesai/ditolak.")
+                            } else {
+                                LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 16.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    items(state.finishedRemoteList) { report -> RemoteReportCard(report, onClick = { onNavigateToDetail(report) }) }
                                 }
                             }
                         }
@@ -186,19 +200,23 @@ fun HistoryScreen(
 @Composable
 fun RemoteReportCard(report: LaporanDto, onClick: () -> Unit) {
     val context = LocalContext.current
+
+    // Warna Teks Status yang bervariasi
     val statusColor = when(report.status) {
         "ditolak" -> Color(0xFFD32F2F)
-        "selesai", "terverifikasi" -> Color(0xFF388E3C)
+        "selesai" -> Color(0xFF388E3C)
+        "terverifikasi" -> Color(0xFF1976D2)
         "perlu_kunjungan" -> Color(0xFF7B1FA2)
-        else -> Color(0xFFF57C00) // menunggu_verifikasi
+        else -> Color(0xFFF57C00)
     }
+
     val displayStatus = report.status.replace("_", " ").uppercase()
     val displayLabel = report.label_ai ?: "Belum Teridentifikasi"
     val displayAddress = report.alamat_lengkap ?: "Lokasi tidak diketahui"
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
@@ -212,15 +230,21 @@ fun RemoteReportCard(report: LaporanDto, onClick: () -> Unit) {
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = statusColor.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
-                        Text(displayStatus, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    Surface(color = statusColor.copy(alpha = 0.15f), shape = RoundedCornerShape(8.dp)) {
+                        Text(
+                            text = displayStatus,
+                            color = statusColor,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
                     }
-                    Text(report.created_at.take(10), fontSize = 13.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+                    Text(report.created_at.take(10), style = MaterialTheme.typography.bodySmall, color = Color.Gray, fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(displayLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(4.dp))
-                Text(displayAddress, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(displayAddress, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -232,13 +256,13 @@ fun PendingReportCard(report: PendingReport) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
-                model = java.io.File(report.imagePath),
+                model = File(report.imagePath),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)).background(Color.LightGray)
@@ -246,26 +270,32 @@ fun PendingReportCard(report: PendingReport) {
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Surface(color = Color(0xFFD32F2F).copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
-                    Text("MENUNGGU UPLOAD", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    Text(
+                        text = "MENUNGGU UPLOAD JARINGAN",
+                        color = Color(0xFFD32F2F),
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(displayLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(4.dp))
-                Text("${report.addressDetail}, Kec. ${report.kecamatan}", style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text("${report.addressDetail}, Kec. ${report.kecamatan}", style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
 
 @Composable
-fun EmptyHistoryState(isOffline: Boolean) {
+fun EmptyHistoryState(isOffline: Boolean, message: String = "Laporan Anda akan tersimpan di sini.") {
     Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape).padding(24.dp)) {
             Icon(imageVector = if (isOffline) Icons.Default.Warning else Icons.Default.History, contentDescription = null, modifier = Modifier.size(48.dp), tint = if (isOffline) MaterialTheme.colorScheme.error else Color.Gray)
         }
         Spacer(Modifier.height(16.dp))
-        Text(text = if (isOffline) "Koneksi Terputus" else "Belum ada riwayat", fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground)
+        Text(text = if (isOffline) "Koneksi Terputus" else "Belum ada laporan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground)
         Spacer(Modifier.height(8.dp))
-        Text(text = if (isOffline) "Riwayat akan tampil saat terhubung ke internet." else "Laporan Anda akan tersimpan di sini.", fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
+        Text(text = if (isOffline) "Riwayat akan tampil saat terhubung ke internet." else message, style = MaterialTheme.typography.bodyMedium, color = Color.Gray, textAlign = TextAlign.Center)
     }
 }

@@ -54,31 +54,21 @@ class AuthRepository @Inject constructor(
         while (true) {
             try {
                 val user = supabase.auth.currentUserOrNull() ?: return
-
-                // REVISI FIX: Cek secara eksplisit apakah FirebaseApp sudah siap
                 val apps = FirebaseApp.getApps(context)
                 if (apps.isEmpty()) {
-                    Log.w("FCM_SYNC", "FirebaseApp belum siap, mencoba initialize manual...")
                     FirebaseApp.initializeApp(context)
                 }
-
-                // Ambil token dengan await()
                 val token = FirebaseMessaging.getInstance().token.await()
-
                 if (!token.isNullOrEmpty()) {
-                    Log.d("FCM_SYNC", "Token didapat: $token")
                     supabase.from("profiles").update(
                         buildJsonObject { put("fcm_token", token) }
-                    ) {
-                        filter { eq("id", user.id) }
-                    }
-                    return // Berhasil, keluar dari loop
+                    ) { filter { eq("id", user.id) } }
+                    return
                 }
             } catch (e: Exception) {
                 retryCount++
-                Log.e("FCM_SYNC_ERROR", "Percobaan $retryCount gagal: ${e.message}")
                 if (retryCount >= maxRetries) break
-                delay(3000) // Beri waktu lebih lama (3 detik) untuk inisialisasi internal
+                delay(3000)
             }
         }
     }
@@ -89,7 +79,6 @@ class AuthRepository @Inject constructor(
 
         try {
             delay(500)
-
             var profileDto = supabase.from("profiles")
                 .select()
                 .decodeList<ProfileDto>()
@@ -105,9 +94,7 @@ class AuthRepository @Inject constructor(
                     try {
                         supabase.from("profiles").update(
                             buildJsonObject { put("id", user.id) }
-                        ) {
-                            filter { eq("email", userEmail) }
-                        }
+                        ) { filter { eq("email", userEmail) } }
                         profileDto = profileByEmail.copy(id = user.id)
                     } catch (eUpdate: Exception) {
                         profileDto = profileByEmail
@@ -122,20 +109,18 @@ class AuthRepository @Inject constructor(
                     email = userEmail,
                     role = user.userMetadata?.get("role")?.toString() ?: "petani"
                 )
-
                 try {
                     supabase.from("profiles").insert(newProfile)
                     profileDto = newProfile
-                } catch (eInsert: Exception) {
-                    Log.e("AuthRepo", "Gagal auto-insert profile: ${eInsert.message}")
-                }
+                } catch (eInsert: Exception) {}
             }
 
             var wkppList: List<String>? = null
             if (profileDto?.role == "popt") {
                 try {
+                    // REVISI: Tarik data relasi kecamatan dari popt_wilayah dengan benar
                     val wilayahResponse = supabase.from("popt_wilayah")
-                        .select(columns = Columns.raw("kecamatan(nama_kecamatan)")) {
+                        .select(columns = Columns.raw("kecamatan_id, kecamatan(nama_kecamatan)")) {
                             filter { eq("popt_id", user.id) }
                         }.decodeList<PoptWilayahDto>()
 
@@ -181,26 +166,16 @@ class AuthRepository @Inject constructor(
                     put("phone_number", phoneNumber)
                     put("alamat", alamat)
                 }
-            ) {
-                filter { eq("id", user.id) }
-            }
+            ) { filter { eq("id", user.id) } }
             true
-        } catch (e: Exception) {
-            Log.e("AuthRepo", "Update Profile Error: ${e.message}")
-            false
-        }
+        } catch (e: Exception) { false }
     }
 
     suspend fun updatePassword(newPass: String): Boolean {
         return try {
-            supabase.auth.updateUser {
-                password = newPass
-            }
+            supabase.auth.updateUser { password = newPass }
             true
-        } catch (e: Exception) {
-            Log.e("AuthRepo", "Update Password Error: ${e.message}")
-            false
-        }
+        } catch (e: Exception) { false }
     }
 
     suspend fun loginEmail(email: String, pass: String): Result<String> {
@@ -209,12 +184,9 @@ class AuthRepository @Inject constructor(
                 this.email = email
                 this.password = pass
             }
-            // REVISI: Ambil token perangkat segera setelah login berhasil
             syncFcmToken()
             Result.success("Login Berhasil")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        } catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun registerEmail(email: String, pass: String, name: String, role: String): Result<String> {
@@ -227,12 +199,9 @@ class AuthRepository @Inject constructor(
                     put("role", role)
                 }
             }
-            // REVISI: Sinkronisasi token setelah pendaftaran
             syncFcmToken()
             Result.success("Registrasi Berhasil! Silakan Login.")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        } catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun signInWithGoogle(): Result<String> {
@@ -258,27 +227,21 @@ class AuthRepository @Inject constructor(
                     idToken = googleIdToken.idToken
                     provider = Google
                 }
-                // REVISI: Sinkronisasi token setelah masuk via Google
                 syncFcmToken()
                 Result.success("Login Google Berhasil")
             } else {
                 Result.failure(Exception("Gagal mendapatkan kredensial Google"))
             }
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        } catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun logout() {
         try {
             val user = supabase.auth.currentUserOrNull()
             if (user != null) {
-                // REVISI: Set token ke null di DB saat logout agar HP ini tidak dikirimi notif akun ini lagi
                 supabase.from("profiles").update(
                     buildJsonObject { put("fcm_token", null as String?) }
-                ) {
-                    filter { eq("id", user.id) }
-                }
+                ) { filter { eq("id", user.id) } }
             }
             supabase.auth.signOut()
         } catch (_: Exception) {}

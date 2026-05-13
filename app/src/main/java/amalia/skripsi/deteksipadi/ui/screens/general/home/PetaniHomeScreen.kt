@@ -6,14 +6,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Assignment
-import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -51,36 +47,25 @@ fun PetaniHomeScreen(
 
         HeroStatusCard(isDanger = isDanger, distance = distance, isOffline = !isNetworkAvailable)
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         Text(
-            text = "Ringkasan Aktivitas",
+            text = "Ringkasan Laporan Anda",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            StatCard(
-                icon = Icons.Outlined.Assignment,
-                count = state.totalReports.toString(),
-                label = "Total Laporan",
-                iconBgColor = MaterialTheme.colorScheme.primary,
-                iconColor = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                icon = Icons.Outlined.History,
-                count = state.pendingReports.toString(),
-                label = "Menunggu",
-                iconBgColor = Color.DarkGray,
-                iconColor = Color.DarkGray,
-                modifier = Modifier.weight(1f)
-            )
-        }
+        // REVISI: Menggunakan Panel Terpadu yang jauh lebih hemat tempat dan elegan
+        PetaniSummaryBoard(
+            total = state.totalReports,
+            diproses = state.pendingReports,
+            selesai = state.finishedReports,
+            ditolak = state.rejectedReports
+        )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -93,10 +78,8 @@ fun PetaniHomeScreen(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            TextButton(onClick = {
-                navController.navigateSingleTopTo(BottomNavItem.History.route)
-            }) {
-                Text("Lihat Semua")
+            TextButton(onClick = { navController.navigateSingleTopTo(BottomNavItem.History.route) }) {
+                Text("Lihat Semua", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -107,9 +90,7 @@ fun PetaniHomeScreen(
         if (report != null) {
             LatestReportCard(
                 report = report,
-                onClick = {
-                    navController.navigateSingleTopTo(BottomNavItem.Reports.route)
-                }
+                onClick = { navController.navigateSingleTopTo(BottomNavItem.History.route) }
             )
         } else {
             EmptyStateCard(

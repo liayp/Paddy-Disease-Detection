@@ -3,18 +3,19 @@ package amalia.skripsi.deteksipadi.ui.screens.general.home
 import amalia.skripsi.deteksipadi.data.NotificationItem
 import androidx.compose.ui.graphics.Color
 
-
 data class DisplayReport(
+    val id: String? = null,
     val label: String?,
     val confidence: Float?,
     val status: String,
     val time: String,
     val imageUrl: Any,
     val address: String?,
+    val lat: Double? = null,
+    val lon: Double? = null,
     val isFromLocal: Boolean
 )
 
-// Model data untuk statistik hama di diagram
 data class PestStat(
     val label: String?,
     val total: Int,
@@ -24,12 +25,20 @@ data class PestStat(
     val color: Color
 )
 
+data class KecamatanStat(
+    val namaKecamatan: String,
+    val totalLaporan: Int,
+    val pestHama: List<Pair<String, Int>>
+)
+
 data class HomeUiState(
     val userName: String = "User",
     val totalReports: Int = 0,
     val pendingReports: Int = 0,
     val finishedReports: Int = 0,
+    val rejectedReports: Int = 0,
     val pestDistribution: List<PestStat> = emptyList(),
+    val kecamatanDistribution: List<KecamatanStat> = emptyList(),
     val reportDisplay: DisplayReport? = null,
     val notifications: List<NotificationItem> = emptyList(),
     val unreadCount: Int = 0,

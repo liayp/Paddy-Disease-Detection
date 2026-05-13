@@ -2,6 +2,7 @@ package amalia.skripsi.deteksipadi.data
 
 import kotlinx.serialization.Serializable
 
+@Serializable
 data class UserProfile(
     val id: String,
     val email: String? = null,
@@ -13,7 +14,9 @@ data class UserProfile(
     val alamat: String? = null,
     val is_active: Boolean = true,
     val created_at: String? = null,
-    val fcm_token: String?,
+    val fcm_token: String? = null,
+    val poktan_id: String? = null,
+    val master_poktan: MasterPoktanDto? = null, // Relasi Ditarik
     val wkpp_kecamatan: List<String>? = null
 )
 
@@ -29,10 +32,19 @@ data class ProfileDto(
     val alamat: String? = null,
     val is_active: Boolean = true,
     val created_at: String? = null,
-    val fcm_token: String? =null
+    val fcm_token: String? = null,
+    val poktan_id: String? = null,
+    val master_poktan: MasterPoktanDto? = null
+)
+
+@Serializable
+data class PoptProfile(
+    val full_name: String? = null,
+    val wkpp_kecamatan: List<String>? = null
 )
 
 @Serializable
 data class PoptWilayahDto(
-    val kecamatan: KecamatanDto? = null
+    val kecamatan_id: String,
+    val kecamatan: KecamatanSimpleDto? = null
 )

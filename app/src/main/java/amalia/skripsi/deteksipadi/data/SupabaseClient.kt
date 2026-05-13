@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package amalia.skripsi.deteksipadi.data
 
 import amalia.skripsi.deteksipadi.ml.DetectionResult
@@ -10,6 +11,7 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
@@ -17,27 +19,24 @@ import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.double
 
 val supabase = createSupabaseClient(
     supabaseUrl = "https://rhlixmoadeexgvrbxkmo.supabase.co",
     supabaseKey = "sb_publishable_dV8oRP92tnXhqDantHWkkg_RTgO3V4P"
 ) {
     httpEngine = OkHttp.create()
-
     install(Postgrest)
     install(Storage)
     install(Auth)
     install(Realtime)
 }
 
-// DTO Murni untuk membaca data dari database (Ditambah lat & lon dari Computed Field)
+const val LAPORAN_COLUMNS = "id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon, deskripsi_gejala, instruksi_popt, radius, jenis_pelaporan, kecamatan_id"
+
 @Serializable
 data class LaporanDto(
     val id: String,
@@ -55,7 +54,8 @@ data class LaporanDto(
     val deskripsi_gejala: String = "",
     val instruksi_popt: String? = null,
     val radius: Double = 0.3,
-    val jenis_pelaporan: String = "ai"
+    val jenis_pelaporan: String = "ai",
+    val kecamatan_id: String? = null
 )
 
 @Serializable
@@ -82,14 +82,13 @@ data class LaporanUpdateDto(
     val catatan: String
 )
 
-// DTO Khusus untuk Insert (PostgREST butuh WKT String untuk tipe PostGIS)
 @Serializable
 data class LaporanInsertDto(
     val petani_id: String,
     val foto_url: String,
     val label_ai: String?,
     val confidence: Float?,
-    val lokasi: String, // Format WKT: SRID=4326;POINT(lon lat)
+    val lokasi: String,
     val alamat_lengkap: String,
     val kecamatan_id: String?,
     val deskripsi_gejala: String,
@@ -102,7 +101,15 @@ data class LaporanInsertDto(
 data class KecamatanDto(
     val id: String,
     val nama_kecamatan: String,
-    val polygon_geojson: String?
+    val polygon_geojson: String? = null
+)
+
+@Serializable
+data class InfoHamaDto(
+    val id: String? = null,
+    val kategori: String,
+    val isi_informasi: String,
+    val urutan: Int
 )
 
 @Serializable
@@ -111,42 +118,124 @@ data class MasterHamaDto(
     val nama_hama: String,
     val deskripsi: String,
     val ciri_ciri: String,
-    val pertolongan_pertama: String
+    val informasi_hama: List<InfoHamaDto> = emptyList()
 )
+
+// REVISI: DTO Untuk Master Poktan
+@Serializable
+data class MasterPoktanDto(
+    val id: String,
+    val nama_poktan: String,
+    val kecamatan: String,
+    val desa: String
+)
+
+@Serializable
+data class KecamatanSimpleDto(
+    val nama_kecamatan: String
+)
+
+@Serializable
+data class CoordinateParams(
+    val p_lat: Double,
+    val p_lon: Double
+)
+
+@Serializable
+data class ProfileNameOnly(val full_name: String? = null)
+
+@Serializable
+data class PoptWilayahSimple(val popt_id: String? = null)
 
 suspend fun fetchActiveLaporan(): List<LaporanDto> {
     return try {
         supabase.from("laporan")
-            .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon")) {
-                filter {
-                    neq("status", "ditolak")
-                }
+            .select(columns = Columns.raw(LAPORAN_COLUMNS)) {
+                filter { neq("status", "ditolak") }
             }.decodeList<LaporanDto>()
     } catch (e: Exception) {
-        android.util.Log.e("PETA_DEBUG", "Gagal Fetch Peta: ${e.message}", e)
         emptyList()
     }
 }
 
-suspend fun getKecamatanIdByName(name: String): String? {
+suspend fun fetchLaporanUntukPOPT(poptId: String): List<LaporanDto> {
     return try {
-        val cleanName = name.replace("Kecamatan", "", ignoreCase = true).trim()
+        val wilayahList = supabase.from("popt_wilayah")
+            .select(columns = Columns.raw("kecamatan_id")) {
+                filter { eq("popt_id", poptId) }
+            }.decodeList<PoptWilayahDto>()
 
-        val result = supabase.from("kecamatan")
-            .select(columns = Columns.raw("id, nama_kecamatan")) {
-                filter {
-                    ilike("nama_kecamatan", "%$cleanName%")
-                }
-            }
-            .decodeList<Map<String, String>>()
+        val kecIds = wilayahList.map { it.kecamatan_id }
 
-        result.firstOrNull()?.get("id")
+        if (kecIds.isEmpty()) return emptyList()
+
+        supabase.from("laporan")
+            .select(columns = Columns.raw(LAPORAN_COLUMNS)) {
+                filter { isIn("kecamatan_id", kecIds) }
+            }.decodeList<LaporanDto>()
     } catch (e: Exception) {
-        android.util.Log.e("KEC_DEBUG", "Lookup gagal: ${e.message}")
+        emptyList()
+    }
+}
+
+suspend fun fetchLaporanById(id: String): LaporanDto? {
+    return try {
+        supabase.from("laporan")
+            .select(columns = Columns.raw(LAPORAN_COLUMNS)) {
+                filter { eq("id", id) }
+            }
+            .decodeList<LaporanDto>()
+            .firstOrNull()
+    } catch (e: Exception) {
         null
     }
 }
 
+suspend fun fetchNamaPelapor(petaniId: String): String {
+    return try {
+        val profile = supabase.from("profiles")
+            .select(columns = Columns.raw("full_name")) {
+                filter { eq("id", petaniId) }
+            }
+            .decodeSingleOrNull<ProfileNameOnly>()
+        profile?.full_name ?: "Petani (Tidak diketahui)"
+    } catch (e: Exception) {
+        "Petani"
+    }
+}
+
+suspend fun fetchNamaPoptByKecamatan(kecId: String?): String {
+    if (kecId == null) return "Belum Ada Petugas"
+    return try {
+        val poptWilayah = supabase.from("popt_wilayah")
+            .select(Columns.raw("popt_id")) { filter { eq("kecamatan_id", kecId) } }
+            .decodeList<PoptWilayahSimple>()
+            .firstOrNull()
+
+        val pId = poptWilayah?.popt_id ?: return "Belum Ada Petugas"
+
+        val profile = supabase.from("profiles")
+            .select(Columns.raw("full_name")) { filter { eq("id", pId) } }
+            .decodeSingleOrNull<ProfileNameOnly>()
+
+        profile?.full_name ?: "Petugas POPT"
+    } catch (e: Exception) {
+        "Petugas POPT"
+    }
+}
+
+suspend fun getKecamatanIdByCoordinate(lat: Double, lon: Double): String? {
+    return try {
+        val result = supabase.postgrest.rpc(
+            "get_kecamatan_id_by_koordinat",
+            CoordinateParams(p_lat = lat, p_lon = lon)
+        ).decodeAsOrNull<String>()
+
+        result?.takeIf { it.isNotBlank() && it != "null" }
+    } catch (e: Exception) {
+        null
+    }
+}
 
 suspend fun submitReportToSupabase(
     photoBytes: ByteArray,
@@ -154,16 +243,16 @@ suspend fun submitReportToSupabase(
     lat: Double,
     lon: Double,
     alamatLengkap: String,
-    namaKecamatanDariGps: String,
     userId: String,
     deskripsiGejala: String,
-    jenisPelaporan: String = "AI", // Parameter default
+    jenisPelaporan: String = "AI",
     isManualMode: Boolean,
     manualPestName: String
 ): Result<String> {
     return try {
-        val kecId = getKecamatanIdByName(namaKecamatanDariGps)
-        if (kecId == null) return Result.failure(Exception("Kecamatan tidak ditemukan di database"))
+        val kecId = getKecamatanIdByCoordinate(lat, lon)
+
+        if (kecId == null) throw Exception("OUT_OF_BOUNDS")
 
         val fileName = "laporan_${System.currentTimeMillis()}.jpg"
         val bucket = supabase.storage.from("evidence_photos")
@@ -173,23 +262,16 @@ suspend fun submitReportToSupabase(
         val bestResult = results.maxByOrNull { it.score }
         val locationString = "SRID=4326;POINT($lon $lat)"
 
-        // LOGIKA PENENTUAN DATA
         val finalLabel = if (isManualMode) {
-            if (manualPestName == "Tidak Tahu") null else manualPestName
+            if (manualPestName == "Tidak Tahu" || manualPestName.isBlank()) null else manualPestName
         } else {
             bestResult?.label
         }
 
         val finalConfidence = if (isManualMode) null else bestResult?.score
         val finalTipe = if (isManualMode) "MANUAL" else "AI"
-
-        // Logika Prioritas yang aman
-
-        val finalPrioritas = if (isManualMode) {
-            "rendah" // Laporan manual langsung diset sedang agar diperiksa POPT
-        } else {
-            if (finalConfidence != null && finalConfidence > 0.5f) "tinggi" else "sedang"
-        }
+        val finalPrioritas = if (isManualMode) "rendah"
+        else if (finalConfidence != null && finalConfidence > 0.5f) "tinggi" else "sedang"
 
         val laporan = LaporanInsertDto(
             petani_id = userId,
@@ -203,13 +285,10 @@ suspend fun submitReportToSupabase(
             jenis_pelaporan = finalTipe,
             prioritas = finalPrioritas,
             status = "menunggu_verifikasi"
-
         )
-
         supabase.from("laporan").insert(laporan)
         Result.success("Berhasil")
     } catch (e: Exception) {
-        android.util.Log.e("UPLOAD_ERROR", "Gagal upload: ${e.message}", e)
         Result.failure(e)
     }
 }
@@ -245,7 +324,6 @@ suspend fun submitLaporanUpdate(
             confidence_update = confidence,
             catatan = catatan
         )
-
         supabase.from("laporan_updates").insert(updateData)
         Result.success(Unit)
     } catch (e: Exception) {
@@ -253,21 +331,18 @@ suspend fun submitLaporanUpdate(
     }
 }
 
-
 suspend fun updateLaporanStatus(
     laporanId: String,
     status: String,
-    instruksi: String,
-    radius: Double
+    instruksi: String? = null,
+    radius: Double? = null
 ): Result<Unit> {
     return try {
         supabase.from("laporan").update({
             set("status", status)
-            set("instruksi_popt", instruksi)
-            set("radius", radius)
-        }) {
-            filter { eq("id", laporanId) }
-        }
+            if (instruksi != null) set("instruksi_popt", instruksi)
+            if (radius != null) set("radius", radius)
+        }) { filter { eq("id", laporanId) } }
         Result.success(Unit)
     } catch (e: Exception) {
         Result.failure(e)
@@ -278,12 +353,19 @@ suspend fun markLaporanSelesai(laporanId: String): Result<Unit> {
     return try {
         supabase.from("laporan").update({
             set("status", "selesai")
-        }) {
-            filter { eq("id", laporanId) }
-        }
+        }) { filter { eq("id", laporanId) } }
         Result.success(Unit)
     } catch (e: Exception) {
         Result.failure(e)
+    }
+}
+
+// REVISI: Fungsi Tarik Master Poktan
+suspend fun fetchMasterPoktan(): List<MasterPoktanDto> {
+    return try {
+        supabase.from("master_poktan").select().decodeList<MasterPoktanDto>()
+    } catch (e: Exception) {
+        emptyList()
     }
 }
 
@@ -298,7 +380,6 @@ suspend fun fetchSemuaKecamatan(): List<KecamatanDto> {
     return try {
         supabase.from("vw_kecamatan_geojson").select().decodeList<KecamatanDto>()
     } catch (e: Exception) {
-        Log.e("KECAMATAN_DEBUG", "Gagal fetch kecamatan: ${e.message}")
         emptyList()
     }
 }
@@ -316,7 +397,7 @@ fun parseGeoJsonToLatLng(geoJsonString: String?): List<List<LatLng>> {
                 for (multiPolygonElement in coordinates) {
                     val polygonArray = multiPolygonElement.jsonArray
                     if (polygonArray.isNotEmpty()) {
-                        val outerRing = polygonArray[0].jsonArray // Ambil cincin luar saja
+                        val outerRing = polygonArray[0].jsonArray
                         val latLngs = outerRing.mapNotNull { coord ->
                             val pt = coord.jsonArray
                             if (pt.size >= 2) LatLng(pt[1].jsonPrimitive.double, pt[0].jsonPrimitive.double) else null
@@ -336,17 +417,16 @@ fun parseGeoJsonToLatLng(geoJsonString: String?): List<List<LatLng>> {
                 }
             }
         }
-    } catch (e: Exception) {
-        Log.e("GEOJSON_ERROR", "Gagal parsing GeoJSON: ${e.message}\nData: $geoJsonString")
-    }
+    } catch (e: Exception) { }
     return polygons
 }
 
 suspend fun fetchMasterHama(): List<MasterHamaDto> {
     return try {
-        supabase.from("master_hama").select().decodeList<MasterHamaDto>()
+        supabase.from("master_hama")
+            .select(columns = Columns.raw("*, informasi_hama(*)"))
+            .decodeList<MasterHamaDto>()
     } catch (e: Exception) {
-        android.util.Log.e("MASTER_HAMA", "Gagal fetch: ${e.message}")
         emptyList()
     }
 }

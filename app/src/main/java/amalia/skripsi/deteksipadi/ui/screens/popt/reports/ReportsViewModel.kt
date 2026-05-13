@@ -1,8 +1,10 @@
 package amalia.skripsi.deteksipadi.ui.screens.popt.reports
 
 import amalia.skripsi.deteksipadi.data.LaporanDto
+import amalia.skripsi.deteksipadi.data.PoptProfile
 import amalia.skripsi.deteksipadi.data.PoptWilayahDto
 import amalia.skripsi.deteksipadi.data.ProfileDto
+import amalia.skripsi.deteksipadi.data.fetchLaporanUntukPOPT
 import amalia.skripsi.deteksipadi.data.supabase
 import android.annotation.SuppressLint
 import android.content.Context
@@ -17,7 +19,6 @@ import androidx.lifecycle.viewModelScope
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
-import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
@@ -27,25 +28,27 @@ import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
 
-@Serializable
-data class PoptProfile(
-    val full_name: String? = null,
-    val wkpp_kecamatan: List<String>? = null
-)
-
 data class PoptReportsUiState(
-    val processList: List<LaporanDto> = emptyList(),
-    val finishedList: List<LaporanDto> = emptyList(),
+    val menungguList: List<LaporanDto> = emptyList(),
+    val kunjunganList: List<LaporanDto> = emptyList(),
+    val terverifikasiList: List<LaporanDto> = emptyList(),
+    val selesaiList: List<LaporanDto> = emptyList(),
+    val ditolakList: List<LaporanDto> = emptyList(),
     val exportPreviewList: List<LaporanDto> = emptyList(),
     val poptProfile: PoptProfile? = null,
     val isLoading: Boolean = false,
+
+    // REVISI: State untuk filter kecamatan
+    val selectedFilterKecamatan: String = "Semua Wilayah",
+    val availableKecamatanList: List<String> = emptyList(),
+
+    // Untuk Export PDF
     val selectedMonthLabel: String = ""
 )
 
@@ -55,7 +58,11 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
     private val _uiState = MutableStateFlow(PoptReportsUiState())
     val uiState = _uiState.asStateFlow()
 
+    // MENYIMPAN DATA ASLI TANPA FILTER
     private var allHotspotsForPOPT = mutableListOf<LaporanDto>()
+    // MENYIMPAN MAPPING ID KECAMATAN -> NAMA KECAMATAN UNTUK FILTER
+    private var kecIdToNameMap = mapOf<String, String>()
+
     private var realtimeChannel: RealtimeChannel? = null
 
     init {
@@ -70,41 +77,38 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
             val userId = supabase.auth.currentUserOrNull()?.id ?: return@launch
 
             try {
-                // Profil
                 val profileDto = supabase.from("profiles")
                     .select { filter { eq("id", userId) } }
                     .decodeSingle<ProfileDto>()
 
                 val wilayahResponse = supabase.from("popt_wilayah")
-                    .select(columns = Columns.raw("kecamatan(nama_kecamatan)")) {
+                    .select(columns = Columns.raw("kecamatan_id, kecamatan(nama_kecamatan)")) {
                         filter { eq("popt_id", userId) }
                     }
                     .decodeList<PoptWilayahDto>()
 
-                val wkppList = wilayahResponse.mapNotNull {
-                    it.kecamatan?.nama_kecamatan
+                // Buat Map ID -> Nama untuk logika Filter
+                kecIdToNameMap = wilayahResponse.associate {
+                    it.kecamatan_id to (it.kecamatan?.nama_kecamatan ?: "Tidak Diketahui")
                 }
+                val wkppList = kecIdToNameMap.values.toList().sorted()
 
                 val profile = PoptProfile(
                     full_name = profileDto.full_name,
                     wkpp_kecamatan = wkppList
                 )
 
-                // Data awal
-                val remoteData = supabase.from("laporan")
-                    .select {
-                        order("created_at", Order.DESCENDING)
-                    }
-                    .decodeList<LaporanDto>()
+                val remoteData = fetchLaporanUntukPOPT(userId)
 
-                allHotspotsForPOPT = remoteData.toMutableList()
-
-                updateUiState()
+                allHotspotsForPOPT = remoteData.sortedByDescending { it.created_at }.toMutableList()
 
                 _uiState.value = _uiState.value.copy(
                     poptProfile = profile,
+                    availableKecamatanList = listOf("Semua Wilayah") + wkppList,
                     isLoading = false
                 )
+
+                updateUiState() // Apply filter awal (Semua Wilayah)
 
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false)
@@ -112,9 +116,14 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
         }
     }
 
+    // FUNGSI BARU: Update Filter Kecamatan
+    fun updateKecamatanFilter(kecamatanName: String) {
+        _uiState.value = _uiState.value.copy(selectedFilterKecamatan = kecamatanName)
+        updateUiState()
+    }
+
     private fun setupRealtimeListener() {
         viewModelScope.launch {
-
             realtimeChannel = supabase.realtime.channel("popt_reports_realtime")
 
             val changeFlow = realtimeChannel!!
@@ -125,49 +134,59 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
             realtimeChannel!!.subscribe()
 
             changeFlow.collect { action ->
-                when (action) {
+                val userId = supabase.auth.currentUserOrNull()?.id ?: return@collect
+                val kecIds = kecIdToNameMap.keys
 
+                when (action) {
                     is PostgresAction.Insert -> {
                         val newData = action.decodeRecord<LaporanDto>()
-                        allHotspotsForPOPT.add(0, newData)
+                        if (newData.kecamatan_id in kecIds) {
+                            allHotspotsForPOPT.add(0, newData)
+                        }
                     }
-
                     is PostgresAction.Update -> {
                         val updated = action.decodeRecord<LaporanDto>()
-                        val index = allHotspotsForPOPT.indexOfFirst {
-                            it.id == updated.id
-                        }
+                        val index = allHotspotsForPOPT.indexOfFirst { it.id == updated.id }
                         if (index != -1) {
                             allHotspotsForPOPT[index] = updated
+                        } else if (updated.kecamatan_id in kecIds) {
+                            allHotspotsForPOPT.add(0, updated)
                         }
                     }
-
                     is PostgresAction.Delete -> {
-                        val id = action.oldRecord["id"]
-                            .toString()
-                            .replace("\"", "")
+                        val id = action.oldRecord["id"].toString().replace("\"", "")
                         allHotspotsForPOPT.removeAll { it.id == id }
                     }
-
                     else -> {}
                 }
 
+                allHotspotsForPOPT.sortByDescending { it.created_at }
                 updateUiState()
             }
         }
     }
 
     private fun updateUiState() {
+        // Ambil filter yang sedang aktif
+        val currentFilterName = _uiState.value.selectedFilterKecamatan
+
+        // Cari ID kecamatan dari nama yang dipilih
+        val targetKecId = if (currentFilterName == "Semua Wilayah") null
+        else kecIdToNameMap.entries.find { it.value == currentFilterName }?.key
+
+        // Filter list master berdasarkan ID Kecamatan (jika ada filter aktif)
+        val filteredList = if (targetKecId == null) {
+            allHotspotsForPOPT
+        } else {
+            allHotspotsForPOPT.filter { it.kecamatan_id == targetKecId }
+        }
+
         _uiState.value = _uiState.value.copy(
-            processList = allHotspotsForPOPT.filter {
-                it.status == "menunggu_verifikasi" ||
-                        it.status == "perlu_kunjungan"
-            },
-            finishedList = allHotspotsForPOPT.filter {
-                it.status == "terverifikasi" ||
-                        it.status == "selesai" ||
-                        it.status == "ditolak"
-            }
+            menungguList = filteredList.filter { it.status == "menunggu_verifikasi" },
+            kunjunganList = filteredList.filter { it.status == "perlu_kunjungan" },
+            terverifikasiList = filteredList.filter { it.status == "terverifikasi" },
+            selesaiList = filteredList.filter { it.status == "selesai" },
+            ditolakList = filteredList.filter { it.status == "ditolak" }
         )
     }
 
@@ -178,12 +197,10 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
 
         repeat(3) {
             months.add(
-                sdf.format(cal.time) to
-                        (cal.get(Calendar.MONTH) to cal.get(Calendar.YEAR))
+                sdf.format(cal.time) to (cal.get(Calendar.MONTH) to cal.get(Calendar.YEAR))
             )
             cal.add(Calendar.MONTH, -1)
         }
-
         return months
     }
 
@@ -194,13 +211,20 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
             set(Calendar.MONTH, month)
         }
 
-        val label = SimpleDateFormat("MMMM yyyy", Locale("id", "ID"))
-            .format(cal.time)
-
+        val monthName = SimpleDateFormat("MMMM yyyy", Locale("id", "ID")).format(cal.time)
         val dbFilterPrefix = String.format("%04d-%02d", year, month + 1)
 
-        val filtered = allHotspotsForPOPT.filter {
-            it.created_at.startsWith(dbFilterPrefix)
+        // Label disesuaikan dengan filter kecamatan saat ini
+        val currentFilter = _uiState.value.selectedFilterKecamatan
+        val label = if (currentFilter == "Semua Wilayah") monthName else "$monthName ($currentFilter)"
+
+        // Filter bulan DAN filter kecamatan
+        val targetKecId = if (currentFilter == "Semua Wilayah") null
+        else kecIdToNameMap.entries.find { it.value == currentFilter }?.key
+
+        val filtered = allHotspotsForPOPT.filter { report ->
+            report.created_at.startsWith(dbFilterPrefix) &&
+                    (targetKecId == null || report.kecamatan_id == targetKecId)
         }
 
         _uiState.value = _uiState.value.copy(
@@ -241,7 +265,15 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
         paint.textAlign = Paint.Align.LEFT
         paint.textSize = 10f
         canvas.drawText("Nama Petugas : ${_uiState.value.poptProfile?.full_name ?: "-"}", 50f, 160f, paint)
-        canvas.drawText("Wilayah Kerja  : ${_uiState.value.poptProfile?.wkpp_kecamatan?.joinToString(", ") ?: "-"}", 50f, 175f, paint)
+
+        // REVISI PDF: Tampilkan filter kecamatan di profil dokumen
+        val currentFilter = _uiState.value.selectedFilterKecamatan
+        val printWilayah = if (currentFilter == "Semua Wilayah") {
+            _uiState.value.poptProfile?.wkpp_kecamatan?.joinToString(", ") ?: "-"
+        } else {
+            currentFilter
+        }
+        canvas.drawText("Wilayah Kerja  : $printWilayah", 50f, 175f, paint)
 
         var y = 210f
         paint.isFakeBoldText = true

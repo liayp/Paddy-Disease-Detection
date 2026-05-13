@@ -35,7 +35,7 @@ import java.util.*
 fun NotificationScreen(
     navController: NavController,
     viewModel: HomeViewModel,
-    // REVISI: Cukup kirim ID, biarkan halaman detail yang ambil data terbaru
+    //Cukup kirim ID, biarkan halaman detail yang ambil data terbaru
     onNavigateToDetail: (String) -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
