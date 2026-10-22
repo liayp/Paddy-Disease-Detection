@@ -67,7 +67,7 @@ fun PoptReportsScreen(
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
 
-    val tabs = listOf("Menunggu", "Kunjungan", "Verifikasi", "Selesai", "Ditolak")
+    val tabs = listOf("Menunggu", "Kunjungan", "Penanganan Mandiri", "Selesai", "Ditolak")
     val pagerState = rememberPagerState { tabs.size }
 
     val scope = rememberCoroutineScope()
@@ -180,7 +180,7 @@ fun PoptReportsScreen(
                             val count = if (!isConnected) 0 else when(index) {
                                 0 -> state.menungguList.size
                                 1 -> state.kunjunganList.size
-                                2 -> state.terverifikasiList.size
+                                2 -> state.penangananMandiriList.size
                                 3 -> state.selesaiList.size
                                 4 -> state.ditolakList.size
                                 else -> 0
@@ -206,7 +206,7 @@ fun PoptReportsScreen(
                         val currentItems = when(page) {
                             0 -> state.menungguList
                             1 -> state.kunjunganList
-                            2 -> state.terverifikasiList
+                            2 -> state.penangananMandiriList
                             3 -> state.selesaiList
                             4 -> state.ditolakList
                             else -> emptyList()
@@ -316,12 +316,12 @@ fun PoptReportCard(report: LaporanDto, onClick: () -> Unit) {
     val statusColor = when(report.status) {
         "ditolak" -> Color(0xFFD32F2F)
         "selesai" -> Color(0xFF388E3C)
-        "terverifikasi" -> Color(0xFF1976D2)
+        "penanganan_mandiri" -> Color(0xFF1976D2)
         "perlu_kunjungan" -> Color(0xFF7B1FA2)
         else -> Color(0xFFF57C00)
     }
     val displayStatus = report.status.replace("_", " ").uppercase()
-    val displayLabel = report.label_ai ?: "Belum Teridentifikasi"
+    val displayLabel = report.label_efektif ?: "Belum Teridentifikasi"
     val displayAddress = report.alamat_lengkap ?: "Lokasi tidak diketahui"
 
     Card(
@@ -349,7 +349,7 @@ fun PoptReportCard(report: LaporanDto, onClick: () -> Unit) {
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
-                    Text(report.created_at.take(10), style = MaterialTheme.typography.bodySmall, color = Color.Gray, fontWeight = FontWeight.Medium)
+                    Text(report.created_at.take(10), style = MaterialTheme.typography.bodyMedium, color = Color.Gray, fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(displayLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)

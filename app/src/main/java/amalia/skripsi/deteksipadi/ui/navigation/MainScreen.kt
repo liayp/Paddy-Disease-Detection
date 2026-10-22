@@ -1,5 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.navigation
 
+import amalia.skripsi.deteksipadi.util.LocationAccessPreference
+
 import amalia.skripsi.deteksipadi.data.HazardRepository
 import amalia.skripsi.deteksipadi.data.LaporanDto
 import amalia.skripsi.deteksipadi.data.supabase
@@ -16,6 +18,9 @@ import amalia.skripsi.deteksipadi.ui.screens.general.home.PoptHomeScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.notification.NotificationScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.profile.ChangePasswordScreen
 import amalia.skripsi.deteksipadi.ui.screens.general.profile.EditProfileScreen
+import amalia.skripsi.deteksipadi.ui.screens.general.profile.NotificationSettingsScreen
+import amalia.skripsi.deteksipadi.ui.screens.general.report.UpdateLahanMapScreen
+import amalia.skripsi.deteksipadi.ui.screens.petani.edukasi.EdukasiScreen
 import amalia.skripsi.deteksipadi.ui.screens.petani.report.PetaniReportDetailScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsScreen
 import amalia.skripsi.deteksipadi.ui.screens.popt.reports.PoptReportsViewModel
@@ -42,6 +47,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -61,25 +67,28 @@ fun MainScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ViewModels initialization
     val homeViewModel: HomeViewModel = hiltViewModel()
     val petaViewModel: PetaViewModel = hiltViewModel()
-    val poptReportsViewModel: PoptReportsViewModel = hiltViewModel()
+    // ViewModel POPT hanya dibuat untuk akun POPT.
+    // Sebelumnya ViewModel ini selalu dibuat, termasuk saat Petani login,
+    // sehingga listener Realtime laporan POPT ikut diinisialisasi.
+    val poptReportsViewModel: PoptReportsViewModel? =
+        if (userRole == "popt") hiltViewModel() else null
     val profileViewModel: ProfileViewModel = hiltViewModel()
 
     val hazardRepo: HazardRepository = petaViewModel.hazardRepo
 
-    // Global Geofence & Location Updates
     LaunchedEffect(Unit) {
+        if (!LocationAccessPreference.canUseLocation(context)) return@LaunchedEffect
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
         var allHotspots: List<LaporanDto> = emptyList()
 
         scope.launch {
             try {
-                allHotspots = supabase.from("laporan")
-                    .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, created_at, alamat_lengkap, lat, lon")) {
-                        filter { neq("status", "ditolak") }
-                    }.decodeList<LaporanDto>()
+                // EWS memakai hotspot aktif dari server. Peta umum memakai vw_laporan_peta_public.
+                allHotspots = supabase.from("vw_hotspot_laporan_aktif")
+                    .select(columns = Columns.raw(amalia.skripsi.deteksipadi.data.LAPORAN_COLUMNS))
+                    .decodeList<LaporanDto>()
             } catch(e: Exception) {
                 android.util.Log.e("PETA_DEBUG", "FETCH FAILED: ${e.message}")
             }
@@ -91,6 +100,10 @@ fun MainScreen(
 
         val locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
+                if (!LocationAccessPreference.canUseLocation(context)) {
+                    fusedLocationClient.removeLocationUpdates(this)
+                    return
+                }
                 val lastLocation = result.lastLocation ?: return
                 hazardRepo.updateLocation(lastLocation.latitude, lastLocation.longitude, allHotspots)
             }
@@ -111,7 +124,6 @@ fun MainScreen(
     var selectedReport by remember { mutableStateOf<LaporanDto?>(null) }
     var selectedReportId by remember { mutableStateOf<String?>(null) }
 
-    // Dynamic Bottom Bar Items based on Role
     val bottomBarItems = remember(userRole) {
         when (userRole) {
             "popt" -> BottomNavItem.poptRoutes()
@@ -119,10 +131,10 @@ fun MainScreen(
         }
     }
 
-    // Define which routes should show the Bottom Navigation Bar
     val validMainRoutes = listOf(
         BottomNavItem.Home.route,
         BottomNavItem.Peta.route,
+        BottomNavItem.Edukasi.route,
         BottomNavItem.Profile.route,
         BottomNavItem.History.route,
         BottomNavItem.Reports.route
@@ -143,7 +155,6 @@ fun MainScreen(
                         items = bottomBarItems
                     )
 
-                    // Floating Scanner Button specifically for Petani
                     if (userRole == "petani") {
                         Box(
                             modifier = Modifier
@@ -168,7 +179,6 @@ fun MainScreen(
             }
         }
     ) { innerPadding ->
-
         val contentModifier = if (currentRoute == SCANNER_ROUTE || currentRoute == "filter_screen") {
             Modifier
         } else {
@@ -180,9 +190,8 @@ fun MainScreen(
             startDestination = BottomNavItem.Home.route,
             modifier = contentModifier
         ) {
-
             // ================= GENERAL / SHARED =================
-            composable(BottomNavItem.Home.route) {
+            composable("home") {
                 when (userRole) {
                     "popt" -> PoptHomeScreen(navController = navController, viewModel = homeViewModel)
                     else -> PetaniHomeScreen(navController = navController, viewModel = homeViewModel)
@@ -210,6 +219,11 @@ fun MainScreen(
                 )
             }
 
+            // RUTE BARU: Edukasi (Disiapkan untuk Tahap 3)
+            composable("edukasi") {
+                EdukasiScreen(navController = navController)
+            }
+
             composable("edit_profile") {
                 EditProfileScreen(
                     navController = navController,
@@ -224,6 +238,10 @@ fun MainScreen(
                 )
             }
 
+            composable("notification_settings") {
+                NotificationSettingsScreen(navController = navController)
+            }
+
             composable("notifications") {
                 NotificationScreen(
                     navController = navController,
@@ -235,11 +253,32 @@ fun MainScreen(
                 )
             }
 
+            // RUTE DEEP LINK NOTIFIKASI
+            composable(
+                route = "report_detail_deep/{reportId}",
+                deepLinks = listOf(navDeepLink { uriPattern = "agriguard://report_detail/{reportId}" })
+            ) { backStackEntry ->
+                val idFromNotif = backStackEntry.arguments?.getString("reportId")
+                if (userRole == "popt") {
+                    ReportDetailScreen(
+                        navController = navController,
+                        reportData = null,
+                        reportId = idFromNotif
+                    )
+                } else {
+                    PetaniReportDetailScreen(
+                        navController = navController,
+                        reportData = null,
+                        reportId = idFromNotif
+                    )
+                }
+            }
+
             composable("report_detail") {
                 ReportDetailScreen(
                     navController = navController,
                     reportData = selectedReport,
-                    reportId = selectedReportId // Pastikan ReportDetailScreen Anda diupdate untuk menerima ID
+                    reportId = selectedReportId
                 )
             }
 
@@ -251,7 +290,6 @@ fun MainScreen(
                 DetectionScreen(navController = navController, homeViewModel = hiltViewModel(), mode = "Laporan_Baru")
             }
 
-            // 1. Rute baru untuk MAP KSA-STYLE
             composable(
                 route = "geofence_update/{id}/{lat}/{lon}",
                 arguments = listOf(
@@ -264,7 +302,7 @@ fun MainScreen(
                 val lat = backStackEntry.arguments?.getString("lat")?.toDoubleOrNull() ?: 0.0
                 val lon = backStackEntry.arguments?.getString("lon")?.toDoubleOrNull() ?: 0.0
 
-                amalia.skripsi.deteksipadi.ui.screens.general.report.UpdateLahanMapScreen(
+                UpdateLahanMapScreen(
                     navController = navController,
                     laporanId = id,
                     targetLat = lat,
@@ -272,7 +310,6 @@ fun MainScreen(
                 )
             }
 
-            // 2. Rute untuk Kamera (Dipanggil DARI dalam UpdateLahanScreen setelah valid)
             composable(
                 route = "camera_update/{id}/{lat}/{lon}",
                 arguments = listOf(
@@ -295,33 +332,9 @@ fun MainScreen(
                 )
             }
 
-            composable(
-                route = "update_lahan/{id}/{lat}/{lon}",
-                arguments = listOf(
-                    navArgument("id") { type = NavType.StringType },
-                    navArgument("lat") { type = NavType.StringType },
-                    navArgument("lon") { type = NavType.StringType }
-                )
-            ) { backStackEntry ->
-                val id = backStackEntry.arguments?.getString("id")
-                val lat = backStackEntry.arguments?.getString("lat")?.toDoubleOrNull()
-                val lon = backStackEntry.arguments?.getString("lon")?.toDoubleOrNull()
-
-                DetectionScreen(
-                    navController = navController,
-                    homeViewModel = hiltViewModel(),
-                    mode = "Update_Lahan",
-                    laporanId = id,
-                    targetLat = lat,
-                    targetLon = lon
-                )
-            }
-
-
             // ================= PETANI SPECIFIC =================
             if (userRole == "petani") {
-
-                composable(BottomNavItem.History.route) {
+                composable("history") {
                     HistoryScreen(
                         navController = navController,
                         historyViewModel = hiltViewModel(),
@@ -343,10 +356,10 @@ fun MainScreen(
 
             // ================= POPT SPECIFIC =================
             if (userRole == "popt") {
-                composable(BottomNavItem.Reports.route) {
+                composable("popt_reports") {
                     PoptReportsScreen(
                         navController = navController,
-                        viewModel = poptReportsViewModel,
+                        viewModel = requireNotNull(poptReportsViewModel) { "PoptReportsViewModel hanya tersedia untuk role POPT" },
                         onReportClick = {
                             selectedReport = it
                             navController.navigate("report_detail")
@@ -355,7 +368,10 @@ fun MainScreen(
                 }
 
                 composable("report_preview") {
-                    ReportPreviewScreen(navController = navController, viewModel = poptReportsViewModel)
+                    ReportPreviewScreen(
+                        navController = navController,
+                        viewModel = requireNotNull(poptReportsViewModel) { "PoptReportsViewModel hanya tersedia untuk role POPT" }
+                    )
                 }
             }
         }

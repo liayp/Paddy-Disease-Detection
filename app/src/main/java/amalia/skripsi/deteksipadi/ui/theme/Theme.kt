@@ -44,50 +44,59 @@ private val LightColorScheme = lightColorScheme(
     onSecondaryContainer = OnPrimary,
 )
 
-
-private val DarkColorScheme = darkColorScheme(
-    primary = Primary,
-    onPrimary = Color.White,
-
-    secondary = Surface,
-    onSecondary = Color.Black,
-
-    tertiary = Primary,
-    onTertiary = Color.White,
-
-    background = Background,
-    onBackground = Color.Black,
-
-    surface = Surface,
-    onSurface = Color.Black,
-
-    primaryContainer = Primary,
-    onPrimaryContainer = Color.White,
-
-    surfaceVariant = Surface,
-    onSurfaceVariant = Color.Black
-
-)
-
 @Composable
-fun DeteksiPadiTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
-    content: @Composable () -> Unit
-) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
+fun DeteksiPadiTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = LightColorScheme,
         typography = Typography,
         content = content
     )
 }
+
+
+//private val DarkColorScheme = darkColorScheme(
+//    primary = Primary,
+//    onPrimary = Color.White,
+//
+//    secondary = Surface,
+//    onSecondary = Color.Black,
+//
+//    tertiary = Primary,
+//    onTertiary = Color.White,
+//
+//    background = Background,
+//    onBackground = Color.Black,
+//
+//    surface = Surface,
+//    onSurface = Color.Black,
+//
+//    primaryContainer = Primary,
+//    onPrimaryContainer = Color.White,
+//
+//    surfaceVariant = Surface,
+//    onSurfaceVariant = Color.Black
+//
+//)
+//
+//@Composable
+//fun DeteksiPadiTheme(
+//    darkTheme: Boolean = isSystemInDarkTheme(),
+//    dynamicColor: Boolean = false,
+//    content: @Composable () -> Unit
+//) {
+//    val colorScheme = when {
+//        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+//            val context = LocalContext.current
+//            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+//        }
+//
+//        darkTheme -> DarkColorScheme
+//        else -> LightColorScheme
+//    }
+//
+//    MaterialTheme(
+//        colorScheme = colorScheme,
+//        typography = Typography,
+//        content = content
+//    )
+//}

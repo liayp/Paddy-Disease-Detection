@@ -1,5 +1,7 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.home
 
+import amalia.skripsi.deteksipadi.util.LocationAccessPreference
+
 import amalia.skripsi.deteksipadi.data.AuthRepository
 import amalia.skripsi.deteksipadi.data.HazardRepository
 import amalia.skripsi.deteksipadi.data.LAPORAN_COLUMNS
@@ -113,10 +115,9 @@ class HomeViewModel @Inject constructor(
     private fun fetchGlobalHotspots() {
         viewModelScope.launch {
             try {
-                allHotspots = supabase.from("laporan")
-                    .select(columns = Columns.raw(LAPORAN_COLUMNS)) {
-                        filter { neq("status", "ditolak") }
-                    }.decodeList<LaporanDto>()
+                allHotspots = supabase.from("vw_hotspot_laporan_aktif")
+                    .select(columns = Columns.raw(LAPORAN_COLUMNS))
+                    .decodeList<LaporanDto>()
                 startLocationTracking()
             } catch (e: Exception) {
                 Log.e("HOME_INIT", "Gagal ambil hotspots: ${e.message}")
@@ -126,6 +127,7 @@ class HomeViewModel @Inject constructor(
 
     @SuppressLint("MissingPermission")
     private fun startLocationTracking() {
+        if (!LocationAccessPreference.canUseLocation(getApplication())) return
         viewModelScope.launch {
             try {
                 fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
@@ -164,14 +166,14 @@ class HomeViewModel @Inject constructor(
                 val areaReports = fetchLaporanUntukPOPT(profile.id)
 
                 val pending = areaReports.filter { it.status == "menunggu_verifikasi" || it.status == "perlu_kunjungan" }
-                val verified = areaReports.filter { it.status == "terverifikasi" || it.status == "selesai" }
+                val verified = areaReports.filter { it.status == "penanganan_mandiri" || it.status == "selesai" }
 
-                val distribution = areaReports.groupBy { it.label_ai ?: "Belum Teridentifikasi" }.entries.mapIndexed { index, entry ->
+                val distribution = areaReports.groupBy { it.label_efektif ?: "Belum Teridentifikasi" }.entries.mapIndexed { index, entry ->
                     PestStat(
                         label = entry.key,
                         total = entry.value.size,
                         pending = entry.value.count { it.status == "menunggu_verifikasi" || it.status == "perlu_kunjungan" },
-                        verified = entry.value.count { it.status == "terverifikasi" || it.status == "selesai" },
+                        verified = entry.value.count { it.status == "penanganan_mandiri" || it.status == "selesai" },
                         percentage = if (areaReports.isNotEmpty()) entry.value.size.toFloat() / areaReports.size else 0f,
                         color = chartColors[index % chartColors.size]
                     )
@@ -179,7 +181,7 @@ class HomeViewModel @Inject constructor(
 
                 val kecDist = kecMap.map { (kecId, kecName) ->
                     val reportsInKec = areaReports.filter { it.kecamatan_id == kecId }
-                    val pests = reportsInKec.groupBy { it.label_ai ?: "Belum Teridentifikasi" }
+                    val pests = reportsInKec.groupBy { it.label_efektif ?: "Belum Teridentifikasi" }
                         .map { it.key to it.value.size }
                         .sortedByDescending { it.second }
                         .take(3)
@@ -209,7 +211,7 @@ class HomeViewModel @Inject constructor(
                 _uiState.update { it.copy(
                     userName = profile.full_name ?: "Petugas POPT",
                     pendingReports = pending.size,
-                    finishedReports = verified.size,
+                    finishedReports = areaReports.count { it.status == "selesai" },
                     totalReports = areaReports.size,
                     pestDistribution = distribution,
                     kecamatanDistribution = kecDist,
@@ -254,8 +256,8 @@ class HomeViewModel @Inject constructor(
                 _uiState.update { it.copy(
                     userName = profile.full_name ?: "Mitra Petani",
                     totalReports = remoteReports.size,
-                    // Status valid: "menunggu", "menunggu_verifikasi", "perlu_kunjungan", "terverifikasi"
-                    pendingReports = remoteReports.count { r -> r.status == "menunggu" || r.status == "menunggu_verifikasi" || r.status == "perlu_kunjungan" || r.status == "terverifikasi" },
+                    // Status operasional aktif yang final digunakan sistem.
+                    pendingReports = remoteReports.count { r -> r.status in setOf("menunggu_verifikasi", "perlu_kunjungan", "penanganan_mandiri") },
                     finishedReports = remoteReports.count { r -> r.status == "selesai" },
                     rejectedReports = remoteReports.count { r -> r.status == "ditolak" },
                     reportDisplay = latest,

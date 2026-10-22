@@ -158,7 +158,6 @@ fun NotificationRow(item: NotificationItem, onClick: () -> Unit) {
                     text = item.judul,
                     style = MaterialTheme.typography.titleSmall.copy(
                         fontWeight = if (!item.sudah_dibaca) FontWeight.ExtraBold else FontWeight.Bold,
-                        fontSize = 14.sp
                     ),
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -168,7 +167,6 @@ fun NotificationRow(item: NotificationItem, onClick: () -> Unit) {
                 Text(
                     text = item.pesan,
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 13.sp,
                         lineHeight = 18.sp
                     ),
                     color = if (item.sudah_dibaca) Color.Gray else MaterialTheme.colorScheme.onSurfaceVariant,

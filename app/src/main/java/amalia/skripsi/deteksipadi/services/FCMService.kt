@@ -5,6 +5,7 @@ import amalia.skripsi.deteksipadi.data.supabase
 import amalia.skripsi.deteksipadi.util.NotificationHelper
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -15,7 +16,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlin.random.Random
 
 class FCMService : FirebaseMessagingService() {
 
@@ -28,12 +28,23 @@ class FCMService : FirebaseMessagingService() {
         val laporanId = remoteMessage.data["laporan_id"]
 
         val isUrgent = (jenis == "geofence_alert")
+        val category = when {
+            jenis.equals("geofence_alert", ignoreCase = true) || jenis.contains("lokasi", ignoreCase = true) -> "geofence"
+            jenis.contains("jadwal", ignoreCase = true) || jenis.contains("kunjungan", ignoreCase = true) -> "schedule"
+            else -> "reports"
+        }
         val channelId = if (isUrgent) NotificationHelper.CHANNEL_URGENT else NotificationHelper.CHANNEL_NORMAL
 
-        val intent = Intent(this, MainActivity::class.java).apply {
-            putExtra("navigate_to", "notifications")
-            putExtra("laporan_id", laporanId)
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        // FIX DEEP LINKING: Menggunakan pola URI agar NavHost Compose langsung membuka halaman terkait
+        val intent = if (laporanId != null) {
+            Intent(Intent.ACTION_VIEW, Uri.parse("agriguard://report_detail/$laporanId"), this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+        } else {
+            Intent(this, MainActivity::class.java).apply {
+                putExtra("navigate_to", "notifications")
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
         }
 
         val pIntent = PendingIntent.getActivity(
@@ -50,7 +61,8 @@ class FCMService : FirebaseMessagingService() {
             channelId = channelId,
             channelName = "Deteksi Padi",
             intent = pIntent,
-            isUrgent = isUrgent
+            isUrgent = isUrgent,
+            category = category
         )
     }
 
@@ -58,7 +70,6 @@ class FCMService : FirebaseMessagingService() {
         super.onNewToken(token)
         Log.d("FCM_SERVICE", "Token baru: $token")
 
-        // REVISI: Update ke Supabase jika user sedang login
         val user = supabase.auth.currentUserOrNull()
         if (user != null) {
             scope.launch {

@@ -37,7 +37,7 @@ import javax.inject.Inject
 data class PoptReportsUiState(
     val menungguList: List<LaporanDto> = emptyList(),
     val kunjunganList: List<LaporanDto> = emptyList(),
-    val terverifikasiList: List<LaporanDto> = emptyList(),
+    val penangananMandiriList: List<LaporanDto> = emptyList(),
     val selesaiList: List<LaporanDto> = emptyList(),
     val ditolakList: List<LaporanDto> = emptyList(),
     val exportPreviewList: List<LaporanDto> = emptyList(),
@@ -184,7 +184,7 @@ class PoptReportsViewModel @Inject constructor() : ViewModel() {
         _uiState.value = _uiState.value.copy(
             menungguList = filteredList.filter { it.status == "menunggu_verifikasi" },
             kunjunganList = filteredList.filter { it.status == "perlu_kunjungan" },
-            terverifikasiList = filteredList.filter { it.status == "terverifikasi" },
+            penangananMandiriList = filteredList.filter { it.status == "penanganan_mandiri" },
             selesaiList = filteredList.filter { it.status == "selesai" },
             ditolakList = filteredList.filter { it.status == "ditolak" }
         )

@@ -1,12 +1,12 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.report
 
+import amalia.skripsi.deteksipadi.util.LocationAccessPreference
+
 import amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Looper
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -46,43 +46,45 @@ fun UpdateLahanMapScreen(
     val context = LocalContext.current
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
     var currentDistance by remember { mutableDoubleStateOf(Double.MAX_VALUE) }
+    var userAccuracyMeters by remember { mutableFloatStateOf(Float.MAX_VALUE) }
     var hasLocationPermission by remember { mutableStateOf(false) }
 
     val targetLocation = LatLng(targetLat, targetLon)
     val maxRadiusMeters = 20.0
 
     val isInsideGeofence = currentDistance <= maxRadiusMeters
+    val hasReliableGps = userAccuracyMeters <= 20f
+    val canTakeUpdatePhoto = isInsideGeofence && hasReliableGps
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(targetLocation, 19f)
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted -> hasLocationPermission = isGranted }
-
     LaunchedEffect(Unit) {
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            hasLocationPermission = true
-        } else {
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
+        // Validasi update membutuhkan lokasi presisi. Pengguna mengelola izin dari switch Pengaturan.
+        hasLocationPermission = LocationAccessPreference.isEnabled(context) &&
+                ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
-    LaunchedEffect(hasLocationPermission) {
-        if (hasLocationPermission) {
+    DisposableEffect(hasLocationPermission) {
+        if (!hasLocationPermission) {
+            onDispose { }
+        } else {
             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-            val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000).build()
-
+            val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2500).build()
             val locationCallback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     result.lastLocation?.let { loc ->
                         userLocation = LatLng(loc.latitude, loc.longitude)
                         currentDistance = LocationUtils.calculateDistance(loc.latitude, loc.longitude, targetLat, targetLon)
+                        userAccuracyMeters = loc.accuracy
                     }
                 }
             }
-            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+            if (LocationAccessPreference.canUseLocation(context) && ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+            }
+            onDispose { fusedLocationClient.removeLocationUpdates(locationCallback) }
         }
     }
 
@@ -145,7 +147,16 @@ fun UpdateLahanMapScreen(
                 elevation = CardDefaults.cardElevation(8.dp)
             ) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (userLocation == null) {
+                    if (!hasLocationPermission) {
+                        Icon(Icons.Default.LocationOff, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Aktifkan penggunaan lokasi dan izin lokasi presisi melalui Pengaturan aplikasi untuk memverifikasi radius 20 meter.",
+                            color = Color.Gray,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center
+                        )
+                    } else if (userLocation == null) {
                         CircularProgressIndicator(modifier = Modifier.size(28.dp), color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
                         Spacer(Modifier.height(12.dp))
                         Text("Mengunci sinyal GPS...", color = Color.Gray, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
@@ -155,22 +166,29 @@ fun UpdateLahanMapScreen(
                             Icon(
                                 imageVector = if (isInsideGeofence) Icons.Default.CheckCircle else Icons.Default.LocationOff,
                                 contentDescription = null,
-                                tint = if (isInsideGeofence) Color(0xFF2E7D32) else Color(0xFFD32F2F),
+                                tint = if (canTakeUpdatePhoto) Color(0xFF2E7D32) else Color(0xFFD32F2F),
                                 modifier = Modifier.size(28.dp)
                             )
                             Spacer(Modifier.width(10.dp))
                             Text(
-                                text = if (isInsideGeofence) "Target Tercapai" else "Jarak: $distanceText Meter",
+                                text = when {
+                                    !hasReliableGps -> "Akurasi GPS: ${if (userAccuracyMeters < Float.MAX_VALUE) userAccuracyMeters.toInt() else 0} m"
+                                    isInsideGeofence -> "Target Tercapai"
+                                    else -> "Jarak: $distanceText Meter"
+                                },
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleMedium,
-                                color = if (isInsideGeofence) Color(0xFF2E7D32) else Color(0xFFD32F2F)
+                                color = if (canTakeUpdatePhoto) Color(0xFF2E7D32) else Color(0xFFD32F2F)
                             )
                         }
 
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            text = if (isInsideGeofence) "Posisi valid. Silakan ambil foto bukti penanganan/pemulihan lahan sekarang."
-                            else "Mendekatlah ke area lingkaran pada peta (kurang dari 20 meter) untuk mengaktifkan kamera.",
+                            text = when {
+                                !hasReliableGps -> "Akurasi GPS belum cukup untuk memverifikasi radius 20 meter. Tunggu beberapa saat di area terbuka."
+                                isInsideGeofence -> "Posisi berada dalam radius 20 meter dengan akurasi GPS memadai. Foto dapat disimpan offline dan disinkronkan saat internet tersedia."
+                                else -> "Mendekatlah ke titik laporan hingga jarak maksimal 20 meter. GPS tetap dapat menghitung jarak tanpa internet; peta dasar mungkin tidak tampil jika belum tersimpan di cache."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                             color = Color.DarkGray
@@ -179,7 +197,7 @@ fun UpdateLahanMapScreen(
                         Spacer(Modifier.height(24.dp))
                         Button(
                             onClick = { navController.navigate("camera_update/$laporanId/$targetLat/$targetLon") },
-                            enabled = isInsideGeofence,
+                            enabled = canTakeUpdatePhoto,
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                             shape = RoundedCornerShape(50),
                             colors = ButtonDefaults.buttonColors(

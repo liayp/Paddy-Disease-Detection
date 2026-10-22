@@ -37,18 +37,18 @@ fun ResultSheetContent(
     deskripsi: String,
     onDeskripsiChange: (String) -> Unit,
     isManualMode: Boolean,
-    onManualModeChange: (Boolean) -> Unit,
-    manualPestSelection: String,
-    onManualPestSelect: (String) -> Unit,
+    detectionFailed: Boolean = false,
+    isUpdateMode: Boolean = false,
     masterHamaList: List<MasterHamaDto>,
     onSend: () -> Unit
 ) {
     val isLocationValid = locationStr != null
 
+    // Laporan manual tidak meminta petani mengidentifikasi OPT. Label ditentukan oleh POPT.
     val canSend = !isLoading && isLocationValid && deskripsi.trim().isNotBlank() &&
-            (if (isManualMode) true else results.isNotEmpty())
+            (isManualMode || isUpdateMode || results.isNotEmpty())
 
-    val currentPestName = if (isManualMode) manualPestSelection else results.maxByOrNull { it.score }?.label
+    val currentPestName = if (isManualMode && !isUpdateMode) null else results.maxByOrNull { it.score }?.label
     val edukasiHama = masterHamaList.find { it.nama_hama.equals(currentPestName, ignoreCase = true) }
 
     // PARENT COLUMN: Menggunakan fillMaxHeight agar BottomSheet bisa merentang dan di-scroll di dalamnya
@@ -58,41 +58,54 @@ fun ResultSheetContent(
             .fillMaxHeight(0.92f), // Menyisakan sedikit ruang di atas agar gestur tutup sheet tetap mudah
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // --- 1. STICKY TABS (Tetap terlihat di atas meski konten di-scroll) ---
-        TabRow(
-            selectedTabIndex = if (isManualMode) 1 else 0,
-            containerColor = Color.Transparent,
-            contentColor = PadiGreen,
-            modifier = Modifier.padding(vertical = 8.dp, horizontal = 24.dp)
+        // Jalur laporan ditentukan otomatis dari hasil deteksi, bukan dipilih pengguna.
+        Surface(
+            color = Color.Transparent,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)
         ) {
-            Tab(
-                selected = !isManualMode,
-                onClick = { if (results.isNotEmpty()) onManualModeChange(false) },
-                text = { Text("Hasil Deteksi AI", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
-                enabled = results.isNotEmpty()
-            )
-            Tab(
-                selected = isManualMode,
-                onClick = { onManualModeChange(true) },
-                text = { Text("Lapor Manual", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
-            )
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    when {
+                        isUpdateMode -> "Pembaruan Kondisi Lahan"
+                        isManualMode -> "Pelaporan Manual"
+                        else -> "Hasil Deteksi AI"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
-
         HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
 
-        // --- 2. SCROLLABLE CONTENT (Hanya bagian bawah yang bisa di-scroll) ---
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f) // Mengambil sisa ruang tinggi yang ada
+                .weight(1f)
                 .verticalScroll(rememberScrollState()) // Konten ini yang bisa di-scroll
                 .padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
             // KONTEN BERDASARKAN MODE
-            if (!isManualMode) {
-                // MODE AI
+            if (isUpdateMode && results.isEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Tidak ada kelas hama/penyakit yang terdeteksi pada foto ini. Foto masih dapat dikirim sebagai bukti pembaruan, tetapi tidak boleh dianggap sebagai hasil deteksi AI atau dinyatakan sehat.",
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else if (!isManualMode || isUpdateMode) {
+                // MODE AI atau hasil deteksi untuk pembaruan kondisi lahan
                 val summary = results.groupingBy { it.label }.eachCount()
                 val maxScore = results.maxOfOrNull { it.score } ?: 0f
 
@@ -122,10 +135,7 @@ fun ResultSheetContent(
                     }
                 }
             } else {
-                // MODE MANUAL
-                LaunchedEffect(true) {
-                    if (isManualMode) onManualPestSelect("Tidak Tahu")
-                }
+                // MODE MANUAL: tersedia hanya jika tidak ada kelas OPT yang terdeteksi.
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
                     shape = RoundedCornerShape(16.dp),
@@ -135,17 +145,34 @@ fun ResultSheetContent(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(24.dp))
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text("Belum Teridentifikasi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                            Text(
+                                if (detectionFailed) "Deteksi AI tidak tersedia" else "Belum Teridentifikasi",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE65100)
+                            )
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            "Sistem AI tidak dapat mengenali indikasi hama secara otomatis. Silakan isi deskripsi selengkap mungkin agar petugas POPT dapat menganalisis laporan Anda.",
+                            if (detectionFailed) {
+                                "Pemeriksaan otomatis gagal dijalankan pada perangkat ini. Anda dapat melanjutkan melalui pelaporan manual, lalu jelaskan gejala yang terlihat agar petugas POPT dapat memeriksa laporan."
+                            } else {
+                                "Model AI tidak menemukan kelas hama/penyakit yang didukung pada foto ini. Hal tersebut tidak memastikan tanaman bebas OPT. Kirim foto dan jelaskan gejala yang terlihat agar petugas POPT dapat memeriksa serta menentukan jenis OPT."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.DarkGray,
                             textAlign = TextAlign.Justify
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Jenis hama/penyakit akan ditentukan oleh petugas POPT berdasarkan foto dan deskripsi gejala.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             // --- EDUKASI & PANDUAN AWAL (DARI DATABASE) ---
@@ -261,7 +288,7 @@ fun ResultSheetContent(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.LocationOn, "Loc", tint = if (isLocationValid) PadiGreen else Color.Red, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(12.dp))
-                Text(locationStr ?: "Sinyal GPS belum ditemukan (Wajib)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = if (isLocationValid) Color.DarkGray else Color.Red)
+                Text(locationStr ?: "Lokasi presisi belum tersedia (wajib untuk laporan)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = if (isLocationValid) Color.DarkGray else Color.Red)
             }
 
             Spacer(modifier = Modifier.height(16.dp))

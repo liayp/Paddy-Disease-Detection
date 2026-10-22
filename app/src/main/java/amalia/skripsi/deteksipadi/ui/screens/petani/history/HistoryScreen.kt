@@ -82,6 +82,7 @@ fun HistoryScreen(
     val context = LocalContext.current
     val state by historyViewModel.uiState.collectAsState()
     val isOnline by rememberConnectivityState(context)
+    val remoteAvailable = isOnline && !state.remoteUnavailable
 
     LaunchedEffect(isOnline) {
         historyViewModel.loadHistory()
@@ -111,6 +112,16 @@ fun HistoryScreen(
             tonalElevation = 2.dp
         ) {
             Column {
+                if (!isOnline || state.remoteUnavailable) {
+                    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            if (state.remoteUnavailable) "Koneksi terputus. Data server yang tersimpan ditampilkan; status terbaru belum diperiksa." else "Koneksi terputus. Menampilkan data tersimpan dan laporan yang menunggu sinkronisasi.",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
                 TabRow(
                     selectedTabIndex = pagerState.currentPage,
                     containerColor = Color.Transparent,
@@ -124,9 +135,9 @@ fun HistoryScreen(
                 ) {
                     tabs.forEachIndexed { index, title ->
                         val count = when (index) {
-                            0 -> state.pendingLocalList.size + (if (isOnline) state.waitingRemoteList.size else 0)
-                            1 -> if (isOnline) state.processRemoteList.size else 0
-                            2 -> if (isOnline) state.finishedRemoteList.size else 0
+                            0 -> state.pendingLocalList.size + (if (remoteAvailable) state.waitingRemoteList.size else 0)
+                            1 -> if (remoteAvailable) state.processRemoteList.size else 0
+                            2 -> if (remoteAvailable) state.finishedRemoteList.size else 0
                             else -> 0
                         }
 
@@ -153,21 +164,22 @@ fun HistoryScreen(
                 ) { page ->
                     when (page) {
                         0 -> { // TAB MENUNGGU (Local + Remote Menunggu)
-                            val combinedList = state.pendingLocalList + state.waitingRemoteList
+                            val visibleRemote = if (remoteAvailable) state.waitingRemoteList else emptyList()
+                            val combinedList = state.pendingLocalList + visibleRemote
 
                             if (combinedList.isEmpty()) {
-                                EmptyHistoryState(isOffline = false, message = "Belum ada laporan yang menunggu verifikasi.")
+                                EmptyHistoryState(isOffline = !remoteAvailable, message = if (remoteAvailable) "Belum ada laporan yang menunggu verifikasi." else "Tidak ada laporan lokal yang menunggu sinkronisasi.")
                             } else {
                                 LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 16.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     items(state.pendingLocalList) { report -> PendingReportCard(report) }
-                                    items(state.waitingRemoteList) { report -> RemoteReportCard(report, onClick = { onNavigateToDetail(report) }) }
+                                    items(visibleRemote) { report -> RemoteReportCard(report, onClick = { onNavigateToDetail(report) }) }
                                 }
                             }
                         }
-                        1 -> { // TAB DIPROSES (Perlu Kunjungan & Terverifikasi)
-                            if (!isOnline) {
+                        1 -> { // TAB DIPROSES (Perlu Kunjungan & Penanganan Mandiri)
+                            if (!remoteAvailable) {
                                 EmptyHistoryState(isOffline = true)
-                            } else if (state.isLoading) {
+                            } else if (state.isLoading && state.processRemoteList.isEmpty()) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                             } else if (state.processRemoteList.isEmpty()) {
                                 EmptyHistoryState(isOffline = false, message = "Tidak ada laporan yang sedang ditindaklanjuti POPT.")
@@ -178,9 +190,9 @@ fun HistoryScreen(
                             }
                         }
                         2 -> { // TAB SELESAI (Selesai & Ditolak)
-                            if (!isOnline) {
+                            if (!remoteAvailable) {
                                 EmptyHistoryState(isOffline = true)
-                            } else if (state.isLoading) {
+                            } else if (state.isLoading && state.finishedRemoteList.isEmpty()) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                             } else if (state.finishedRemoteList.isEmpty()) {
                                 EmptyHistoryState(isOffline = false, message = "Belum ada laporan yang berstatus selesai/ditolak.")
@@ -205,13 +217,13 @@ fun RemoteReportCard(report: LaporanDto, onClick: () -> Unit) {
     val statusColor = when(report.status) {
         "ditolak" -> Color(0xFFD32F2F)
         "selesai" -> Color(0xFF388E3C)
-        "terverifikasi" -> Color(0xFF1976D2)
+        "penanganan_mandiri" -> Color(0xFF1976D2)
         "perlu_kunjungan" -> Color(0xFF7B1FA2)
         else -> Color(0xFFF57C00)
     }
 
     val displayStatus = report.status.replace("_", " ").uppercase()
-    val displayLabel = report.label_ai ?: "Belum Teridentifikasi"
+    val displayLabel = report.label_efektif ?: "Belum Teridentifikasi"
     val displayAddress = report.alamat_lengkap ?: "Lokasi tidak diketahui"
 
     Card(

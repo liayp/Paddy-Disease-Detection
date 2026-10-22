@@ -14,27 +14,35 @@ class NetworkMonitor(private val context: Context) {
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
+    @Volatile private var isRegistered = false
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        // Fungsi ini terpanggil OTOMATIS detik ketika HP dapat internet
         override fun onAvailable(network: Network) {
-            Log.d("NetworkMonitor", "INTERNET TERDETEKSI! Memicu Upload Worker...")
-            triggerUploadNow()
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) {
+                Log.d("NetworkMonitor", "Akses internet tersedia; antrean sinkronisasi dijadwalkan")
+                triggerUploadNow()
+            }
+        }
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) triggerUploadNow()
         }
     }
 
+    @Synchronized
     fun startMonitoring() {
+        if (isRegistered) return
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
-        connectivityManager.registerNetworkCallback(request, networkCallback)
+        runCatching { connectivityManager.registerNetworkCallback(request, networkCallback); isRegistered = true }
+            .onFailure { Log.w("NetworkMonitor", "Pemantauan koneksi tidak dapat dimulai", it) }
     }
 
     fun stopMonitoring() {
-        try {
-            connectivityManager.unregisterNetworkCallback(networkCallback)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        if (!isRegistered) return
+        runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
+        isRegistered = false
     }
 
     private fun triggerUploadNow() {
@@ -49,7 +57,7 @@ class NetworkMonitor(private val context: Context) {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             "UploadReports",
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             uploadRequest
         )
     }

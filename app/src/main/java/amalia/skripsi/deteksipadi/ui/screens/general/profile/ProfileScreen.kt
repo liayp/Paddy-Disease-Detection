@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -94,6 +95,18 @@ fun ProfileScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+
+                IconButton(
+                    onClick = { navController.navigate("notification_settings") },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Pengaturan aplikasi",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
 
                 // TOMBOL EDIT FLOATING

@@ -12,34 +12,25 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor() : ViewModel() {
-
     private val _userProfile = mutableStateOf<UserProfile?>(null)
     val userProfile: State<UserProfile?> = _userProfile
-
     private val _isLoading = mutableStateOf(false)
     val isLoading: State<Boolean> = _isLoading
 
     fun loadUserProfile(repository: AuthRepository) {
         viewModelScope.launch {
             _isLoading.value = true
-            val profile = repository.getUserProfile()
-            _userProfile.value = profile
+            _userProfile.value = repository.getUserProfile()
             _isLoading.value = false
         }
     }
 
-    fun updateProfile(
-        repository: AuthRepository,
-        fullName: String,
-        phoneNumber: String,
-        alamat: String,
-        onResult: (Boolean, String) -> Unit
-    ) {
+    fun updateProfile(repository: AuthRepository, fullName: String, phoneNumber: String, alamat: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
             _isLoading.value = true
             val success = repository.updateProfile(fullName, phoneNumber, alamat)
             if (success) {
-                loadUserProfile(repository)
+                _userProfile.value = repository.getUserProfile()
                 onResult(true, "Profil berhasil diperbarui")
             } else {
                 onResult(false, "Gagal memperbarui profil")
@@ -48,11 +39,7 @@ class ProfileViewModel @Inject constructor() : ViewModel() {
         }
     }
 
-    fun changePassword(
-        repository: AuthRepository,
-        newPass: String,
-        onResult: (Boolean, String) -> Unit
-    ) {
+    fun changePassword(repository: AuthRepository, newPass: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
             _isLoading.value = true
             val success = repository.updatePassword(newPass)

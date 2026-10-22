@@ -1,20 +1,22 @@
 package amalia.skripsi.deteksipadi.ui.screens.petani.detection
 
+import amalia.skripsi.deteksipadi.util.LocationAccessPreference
+
 import amalia.skripsi.deteksipadi.data.MasterHamaDto
 import amalia.skripsi.deteksipadi.data.fetchMasterHama
 import amalia.skripsi.deteksipadi.data.local.AppDatabase
 import amalia.skripsi.deteksipadi.data.local.PendingReport
+import amalia.skripsi.deteksipadi.data.local.PendingLaporanUpdateQueue
+import amalia.skripsi.deteksipadi.ui.screens.general.peta.LocationUtils
 import amalia.skripsi.deteksipadi.data.submitReportToSupabase
 import amalia.skripsi.deteksipadi.data.supabase
 import amalia.skripsi.deteksipadi.ml.DetectionResult
 import amalia.skripsi.deteksipadi.ml.YoloDetector
 import amalia.skripsi.deteksipadi.ui.screens.general.home.HomeViewModel
 import amalia.skripsi.deteksipadi.workers.UploadWorker
-import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -40,7 +42,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.app.ActivityCompat
 import androidx.navigation.NavController
 import androidx.room.Room
 import androidx.work.Constraints
@@ -49,6 +50,8 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,6 +59,9 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,21 +77,19 @@ fun DetectionScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
-
     val scaffoldState = rememberBottomSheetScaffoldState()
     val showCapturedImageState = remember { mutableStateOf(false) }
     val capturedBitmapState = remember { mutableStateOf<Bitmap?>(null) }
-
     var detectionResults by remember { mutableStateOf<List<DetectionResult>>(emptyList()) }
+    var detectionFailed by remember { mutableStateOf(false) }
     var reportLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var reportLocationAccuracy by remember { mutableFloatStateOf(Float.MAX_VALUE) }
+    var photoCapturedAtMillis by remember { mutableLongStateOf(0L) }
     var isUploading by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
-
     var inputDeskripsi by remember { mutableStateOf("") }
-
-    var isManualMode by remember { mutableStateOf(false) }
-    var manualPestSelection by remember { mutableStateOf("Tidak Tahu") }
-
+    // Mode pelaporan ditentukan oleh hasil deteksi; pengguna tidak dapat mengganti AI menjadi manual.
+    val isManualMode = detectionResults.isEmpty()
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val imageCapture = remember { ImageCapture.Builder().build() }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
@@ -94,8 +98,8 @@ fun DetectionScreen(
     val detector = remember {
         try { YoloDetector(context, "best.tflite") } catch (_: Exception) { null }
     }
-
     var masterHamaList by remember { mutableStateOf<List<MasterHamaDto>>(emptyList()) }
+
     LaunchedEffect(Unit) {
         masterHamaList = fetchMasterHama()
     }
@@ -115,21 +119,33 @@ fun DetectionScreen(
         capturedBitmapState.value = null
         showCapturedImageState.value = false
         detectionResults = emptyList()
+        detectionFailed = false
         reportLocation = null
+        reportLocationAccuracy = Float.MAX_VALUE
+        photoCapturedAtMillis = 0L
         showSuccessDialog = false
         inputDeskripsi = ""
     }
 
     BackHandler(enabled = showCapturedImageState.value) { onReset() }
 
-    fun processResult(bmp: Bitmap, location: Pair<Double, Double>?) {
+    fun processResult(bmp: Bitmap, location: Pair<Double, Double>?, accuracyMeters: Float? = null) {
         capturedBitmapState.value = bmp
         showCapturedImageState.value = true
         reportLocation = location
-        detector?.let { d ->
-            val res = d.detect(bmp)
-            detectionResults = res
-            isManualMode = res.isEmpty()
+        reportLocationAccuracy = accuracyMeters ?: Float.MAX_VALUE
+        photoCapturedAtMillis = System.currentTimeMillis()
+        detectionFailed = false
+        if (detector == null) {
+            detectionResults = emptyList()
+            detectionFailed = true
+        } else {
+            try {
+                detectionResults = detector.detect(bmp)
+            } catch (e: Exception) {
+                detectionResults = emptyList()
+                detectionFailed = true
+            }
         }
         scope.launch { scaffoldState.bottomSheetState.expand() }
     }
@@ -141,20 +157,40 @@ fun DetectionScreen(
             result.data?.data?.let { uri ->
                 scope.launch(Dispatchers.IO) {
                     val bmp = ImageUtils.loadBitmapFromUri(context, uri)
-                    val exifLoc = ImageUtils.getGeoLocation(context, uri)
-                    if (bmp != null) withContext(Dispatchers.Main) { processResult(bmp, exifLoc) }
+                    val exifLoc = if (LocationAccessPreference.isEnabled(context)) ImageUtils.getGeoLocation(context, uri) else null
+                    if (bmp != null) withContext(Dispatchers.Main) {
+                        if (mode == "Update_Lahan") {
+                            Toast.makeText(context, "Update kondisi lahan wajib menggunakan foto kamera langsung agar GPS dapat divalidasi.", Toast.LENGTH_LONG).show()
+                        } else {
+                            processResult(bmp, exifLoc, null)
+                        }
+                    }
                 }
             }
         }
     }
 
     fun onCameraCapture(bmp: Bitmap) {
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
-                processResult(bmp, if (loc != null) Pair(loc.latitude, loc.longitude) else null)
-            }.addOnFailureListener { processResult(bmp, null) }
-        } else {
-            processResult(bmp, null)
+        val hasPreciseLocationPermission = LocationAccessPreference.hasFinePermission(context)
+        if (!LocationAccessPreference.canUsePreciseLocation(context) || !hasPreciseLocationPermission) {
+            processResult(bmp, null, null)
+            return
+        }
+
+        try {
+            fusedLocationClient.getCurrentLocation(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                CancellationTokenSource().token
+            ).addOnSuccessListener { loc ->
+                processResult(
+                    bmp,
+                    if (loc != null) Pair(loc.latitude, loc.longitude) else null,
+                    loc?.accuracy
+                )
+            }.addOnFailureListener { processResult(bmp, null, null) }
+        } catch (_: SecurityException) {
+            // Izin dapat dicabut di antara pemeriksaan dan pemanggilan API.
+            processResult(bmp, null, null)
         }
     }
 
@@ -183,15 +219,24 @@ fun DetectionScreen(
                     deskripsi = inputDeskripsi,
                     onDeskripsiChange = { inputDeskripsi = it },
                     isManualMode = isManualMode,
-                    onManualModeChange = { isManualMode = it },
-                    manualPestSelection = manualPestSelection,
-                    onManualPestSelect = { manualPestSelection = it },
+                    detectionFailed = detectionFailed,
+                    isUpdateMode = mode == "Update_Lahan",
                     masterHamaList = masterHamaList,
                     onSend = {
                         val rawBmp = capturedBitmapState.value
                         val loc = reportLocation
-
-                        if (loc != null && rawBmp != null) {
+                        val updateLocationValid = if (mode == "Update_Lahan") {
+                            val distance = if (loc != null && targetLat != null && targetLon != null)
+                                LocationUtils.calculateDistance(loc.first, loc.second, targetLat, targetLon)
+                            else Double.MAX_VALUE
+                            loc != null && targetLat != null && targetLon != null &&
+                                    distance <= 20.0 && reportLocationAccuracy <= 20f
+                        } else true
+                        if (mode == "Update_Lahan" && !updateLocationValid) {
+                            Toast.makeText(context, "Foto update harus diambil dalam radius 20 meter dari titik laporan dan akurasi GPS maksimal 20 meter. Aktifkan GPS lalu coba lagi di area terbuka.", Toast.LENGTH_LONG).show()
+                        } else if (inputDeskripsi.trim().isBlank()) {
+                            Toast.makeText(context, "Deskripsi gejala wajib diisi.", Toast.LENGTH_LONG).show()
+                        } else if (loc != null && rawBmp != null) {
                             val currentUser = supabase.auth.currentUserOrNull()
                             val userId = currentUser?.id ?: ""
                             val hasInternet = isOnline(context)
@@ -205,21 +250,27 @@ fun DetectionScreen(
                                 val photoBytes = stream.toByteArray()
                                 stream.close()
 
-                                val addressInfo = ImageUtils.getAddressName(context, loc.first, loc.second)
+                                val addressInfo = if (mode == "Update_Lahan") Triple("", "", "") else ImageUtils.getAddressName(context, loc.first, loc.second)
                                 val alamatLengkapGabungan = "${addressInfo.third}, ${addressInfo.second}, Kec. ${addressInfo.first}"
+                                val capturedAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date(if (photoCapturedAtMillis > 0L) photoCapturedAtMillis else System.currentTimeMillis()))
 
                                 if (hasInternet) {
                                     val result = if (mode == "Update_Lahan" && laporanId != null) {
                                         amalia.skripsi.deteksipadi.data.submitLaporanUpdate(
                                             laporanId = laporanId, userId = userId, photoBytes = photoBytes,
-                                            labelAi = detectionResults.firstOrNull()?.label ?: "Sehat",
-                                            confidence = detectionResults.firstOrNull()?.score ?: 0f, catatan = inputDeskripsi
+                                            labelAi = detectionResults.firstOrNull()?.label ?: "Belum Teridentifikasi",
+                                            confidence = detectionResults.firstOrNull()?.score ?: 0f,
+                                            catatan = inputDeskripsi,
+                                            latitude = loc.first,
+                                            longitude = loc.second,
+                                            gpsAccuracyMeters = reportLocationAccuracy,
+                                            capturedAt = capturedAt
                                         )
                                     } else {
                                         submitReportToSupabase(
                                             photoBytes = photoBytes, results = detectionResults, lat = loc.first, lon = loc.second,
                                             alamatLengkap = alamatLengkapGabungan, userId = userId, deskripsiGejala = inputDeskripsi,
-                                            isManualMode = isManualMode, manualPestName = manualPestSelection
+                                            isManualMode = isManualMode, manualPestName = if (isManualMode) "Tidak Tahu" else ""
                                         )
                                     }
 
@@ -228,46 +279,72 @@ fun DetectionScreen(
                                         if (result.isSuccess) {
                                             if (mode == "Update_Lahan") {
                                                 Toast.makeText(context, "Data Update Lahan berhasil dikirim!", Toast.LENGTH_LONG).show()
-                                                // Navigasi mundur ke halaman riwayat atau map yang memanggilnya
                                                 navController.popBackStack()
                                             } else {
                                                 showSuccessDialog = true
                                             }
                                         } else {
-                                            // CEK APAKAH DITOLAK KARENA OUT OF BOUNDS
                                             val errorMsg = result.exceptionOrNull()?.message ?: ""
                                             if (errorMsg.contains("OUT_OF_BOUNDS")) {
-                                                Toast.makeText(context, "DITOLAK: Lokasi Anda berada di luar wilayah cakupan sistem kami.", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(context, "DITOLAK: Lokasi Anda berada di luar wilayah cakupan sistem.", Toast.LENGTH_LONG).show()
+                                            } else if (mode == "Update_Lahan" && (errorMsg.contains("radius 20 meter", true) || errorMsg.contains("akurasi GPS", true) || errorMsg.contains("Koordinat GPS", true))) {
+                                                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
                                             } else {
-                                                // Error jaringan, simpan offline
                                                 if (mode != "Update_Lahan") {
                                                     saveToLocalAndQueue(
                                                         context = context, bmpWithBox = finalBitmap, results = detectionResults,
                                                         loc = loc, addr = addressInfo, userId = userId, deskripsi = inputDeskripsi,
-                                                        isManualMode = isManualMode, manualPestName = manualPestSelection
+                                                        isManualMode = isManualMode, manualPestName = if (isManualMode) "Belum Teridentifikasi" else ""
                                                     )
                                                     Toast.makeText(context, "Gagal terhubung server. Laporan diamankan ke mode offline.", Toast.LENGTH_LONG).show()
                                                     onReset()
                                                 } else {
-                                                    Toast.makeText(context, "Gagal upload update lahan. Pastikan internet stabil.", Toast.LENGTH_LONG).show()
+                                                    withContext(Dispatchers.IO) { saveUpdateToLocalAndQueue(
+                                                        context = context,
+                                                        laporanId = laporanId.orEmpty(),
+                                                        userId = userId,
+                                                        bitmap = finalBitmap,
+                                                        labelAi = detectionResults.firstOrNull()?.label ?: "Belum Teridentifikasi",
+                                                        confidence = detectionResults.firstOrNull()?.score ?: 0f,
+                                                        catatan = inputDeskripsi,
+                                                        latitude = loc.first,
+                                                        longitude = loc.second,
+                                                        gpsAccuracyMeters = reportLocationAccuracy,
+                                                        capturedAt = capturedAt
+                                                    ) }
+                                                    Toast.makeText(context, "Upload gagal. Bukti update disimpan offline dan akan dikirim saat internet tersedia.", Toast.LENGTH_LONG).show()
+                                                    navController.popBackStack()
                                                 }
                                             }
                                         }
                                     }
                                 } else {
-                                    // OFFLINE MODE
                                     withContext(Dispatchers.Main) {
                                         isUploading = false
                                         if (mode == "Laporan_Baru") {
                                             saveToLocalAndQueue(
                                                 context = context, bmpWithBox = finalBitmap, results = detectionResults,
                                                 loc = loc, addr = addressInfo, userId = userId, deskripsi = inputDeskripsi,
-                                                isManualMode = isManualMode, manualPestName = manualPestSelection
+                                                isManualMode = isManualMode, manualPestName = if (isManualMode) "Belum Teridentifikasi" else ""
                                             )
-                                            Toast.makeText(context, "Tidak ada internet. Laporan tersimpan offline dan akan dikirim otomatis nanti.", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, "Tidak ada internet. Laporan tersimpan offline.", Toast.LENGTH_LONG).show()
                                             onReset()
-                                        } else {
-                                            Toast.makeText(context, "Fitur Update Lahan wajib menggunakan internet.", Toast.LENGTH_LONG).show()
+                                        } else if (mode == "Update_Lahan" && laporanId != null) {
+                                            withContext(Dispatchers.IO) { saveUpdateToLocalAndQueue(
+                                                context = context,
+                                                laporanId = laporanId,
+                                                userId = userId,
+                                                bitmap = finalBitmap,
+                                                labelAi = detectionResults.firstOrNull()?.label ?: "Belum Teridentifikasi",
+                                                confidence = detectionResults.firstOrNull()?.score ?: 0f,
+                                                catatan = inputDeskripsi,
+                                                latitude = loc.first,
+                                                longitude = loc.second,
+                                                gpsAccuracyMeters = reportLocationAccuracy,
+                                                capturedAt = capturedAt
+                                            ) }
+                                            Toast.makeText(context, "Tidak ada internet. Bukti update tersimpan di perangkat dan akan dikirim otomatis saat jaringan tersedia.", Toast.LENGTH_LONG).show()
+                                            navController.popBackStack()
                                         }
                                     }
                                 }
@@ -280,7 +357,6 @@ fun DetectionScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     ScannerTopBar(navController, cameraExecutor)
-
                     Box(modifier = Modifier.weight(1f)) {
                         ScannerContent(
                             hasCameraPermission = remember { mutableStateOf(true) },
@@ -299,9 +375,8 @@ fun DetectionScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-
                     Box(modifier = Modifier.height(110.dp).fillMaxWidth()) {
-                        if (!showCapturedImageState.value) {
+                        if (!showCapturedImageState.value && mode != "Update_Lahan") {
                             ScannerBottomBar(onGalleryClick = {
                                 val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
                                 galleryLauncher.launch(intent)
@@ -323,7 +398,7 @@ fun DetectionScreen(
                 if (showSuccessDialog) {
                     AlertDialog(
                         onDismissRequest = { onReset() },
-                        icon = { Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(48.dp)) },
+                        icon = { Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) },
                         title = { Text("Peringatan Dini Terkirim!") },
                         text = { Text("Data deteksi dan titik koordinat telah berhasil disiarkan ke sistem.", textAlign = TextAlign.Center) },
                         confirmButton = {
@@ -336,7 +411,7 @@ fun DetectionScreen(
                                         restoreState = true
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) { Text("Lihat Peta") }
                         },
                         dismissButton = {
@@ -352,6 +427,7 @@ fun DetectionScreen(
         }
     }
 }
+
 
 suspend fun saveToLocalAndQueue(
     context: Context,
@@ -371,7 +447,7 @@ suspend fun saveToLocalAndQueue(
     fileStream.close()
 
     val finalLabel = if (isManualMode) {
-        if (manualPestName.isBlank()) "Belum Teridentifikasi" else manualPestName
+        manualPestName.ifBlank { "Belum Teridentifikasi" }
     } else {
         results.maxByOrNull { it.score }?.label ?: "Belum Teridentifikasi"
     }
@@ -385,7 +461,7 @@ suspend fun saveToLocalAndQueue(
         confidence = finalScore,
         lat = loc.first,
         lon = loc.second,
-        kecamatan = addr.first, // Disimpan sebagai String (Human Readable Text), relasi database nanti dihitung worker
+        kecamatan = addr.first,
         kelurahan = addr.second,
         addressDetail = addr.third,
         userId = userId,
@@ -396,4 +472,38 @@ suspend fun saveToLocalAndQueue(
     val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
     val req = OneTimeWorkRequest.Builder(UploadWorker::class.java).setConstraints(constraints).build()
     WorkManager.getInstance(context).enqueueUniqueWork("UploadReports", ExistingWorkPolicy.KEEP, req)
+}
+
+suspend fun saveUpdateToLocalAndQueue(
+    context: Context,
+    laporanId: String,
+    userId: String,
+    bitmap: Bitmap,
+    labelAi: String,
+    confidence: Float,
+    catatan: String,
+    latitude: Double,
+    longitude: Double,
+    gpsAccuracyMeters: Float,
+    capturedAt: String
+) {
+    val imageFile = File(context.filesDir, "update_${laporanId}_${System.currentTimeMillis()}.jpg")
+    FileOutputStream(imageFile).use { output -> bitmap.compress(Bitmap.CompressFormat.JPEG, 78, output) }
+    PendingLaporanUpdateQueue(context).use { queue ->
+        queue.enqueue(
+            laporanId = laporanId,
+            userId = userId,
+            imagePath = imageFile.absolutePath,
+            labelAi = labelAi,
+            confidence = confidence,
+            catatan = catatan,
+            latitude = latitude,
+            longitude = longitude,
+            gpsAccuracyMeters = gpsAccuracyMeters,
+            capturedAt = capturedAt
+        )
+    }
+    val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+    val request = OneTimeWorkRequest.Builder(UploadWorker::class.java).setConstraints(constraints).build()
+    WorkManager.getInstance(context).enqueueUniqueWork("UploadReports", ExistingWorkPolicy.KEEP, request)
 }

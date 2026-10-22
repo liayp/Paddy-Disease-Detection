@@ -28,6 +28,7 @@ class PetaViewModel @Inject constructor(
     // State untuk Kecamatan & Poligon
     var semuaKecamatan by mutableStateOf<List<KecamatanDto>>(emptyList())
     var currentPolygons by mutableStateOf<List<List<LatLng>>>(emptyList())
+    var polygonLoadError by mutableStateOf<String?>(null)
 
     val isDanger = hazardRepo.isDanger
     val currentDistance = hazardRepo.currentDistance
@@ -43,7 +44,16 @@ class PetaViewModel @Inject constructor(
     init {
         // Tarik data master kecamatan di awal
         viewModelScope.launch {
-            semuaKecamatan = fetchSemuaKecamatan()
+            try {
+                semuaKecamatan = fetchSemuaKecamatan()
+                polygonLoadError = if (semuaKecamatan.isEmpty()) {
+                    "Data kecamatan kosong dari vw_kecamatan_geojson. Periksa view dan hak SELECT."
+                } else null
+                applyFilter()
+            } catch (e: Exception) {
+                polygonLoadError = "Gagal memuat polygon kecamatan: ${e.message ?: "kesalahan tidak diketahui"}"
+                android.util.Log.e("PetaViewModel", "Gagal memuat vw_kecamatan_geojson", e)
+            }
         }
     }
 
@@ -70,28 +80,28 @@ class PetaViewModel @Inject constructor(
     fun applyFilter() {
         val today = Calendar.getInstance()
 
-        // Kumpulkan semua poligon dari kecamatan yang dipilih
-        val polygons = mutableListOf<List<LatLng>>()
+        // Pilih polygon berdasarkan nama yang dipilih pada UI; titik difilter memakai FK kecamatan_id.
         val targetKecamatan = if (selectedKecamatanList.isNotEmpty()) {
-            semuaKecamatan.filter { selectedKecamatanList.contains(it.nama_kecamatan) }
+            semuaKecamatan.filter { it.nama_kecamatan in selectedKecamatanList }
         } else {
             semuaKecamatan
         }
-
-        targetKecamatan.forEach { kec ->
-            val parsed = parseGeoJsonToLatLng(kec.polygon_geojson)
-            polygons.addAll(parsed)
+        val polygonsByKecamatanId = targetKecamatan.associate { kec ->
+            kec.id to parseGeoJsonToLatLng(kec.polygon_geojson)
         }
-        currentPolygons = polygons
+        currentPolygons = polygonsByKecamatanId.values.flatten()
+        val selectedKecamatanIds = targetKecamatan.map { it.id }.toSet()
 
-        // 2. Filter Hotspot
         filteredHotspots = allHotspots.filter { spot ->
-            val matchHama = if (selectedHama == "Semua Hama") true else spot.label_ai == selectedHama
-
-            // Cek apakah alamat laporan mengandung salah satu nama kecamatan yang dipilih
-            val matchLoc = if (selectedKecamatanList.isEmpty()) true
-            else selectedKecamatanList.any { kecName ->
-                spot.alamat_lengkap?.contains(kecName, ignoreCase = true) == true
+            val matchHama = selectedHama == "Semua Hama" || spot.label_efektif == selectedHama
+            val matchLoc = if (selectedKecamatanList.isEmpty()) {
+                true
+            } else if (!spot.kecamatan_id.isNullOrBlank()) {
+                spot.kecamatan_id in selectedKecamatanIds
+            } else {
+                // Fallback untuk laporan lama tanpa FK kecamatan: uji koordinat terhadap polygon terpilih.
+                val selectedPolygons = polygonsByKecamatanId.values.flatten()
+                selectedPolygons.any { polygon -> pointInPolygon(spot.lat, spot.lon, polygon) }
             }
 
             val spotTime = try {
@@ -113,6 +123,23 @@ class PetaViewModel @Inject constructor(
             }
             matchHama && matchLoc && matchTime
         }
+    }
+
+    private fun pointInPolygon(lat: Double, lon: Double, polygon: List<LatLng>): Boolean {
+        if (polygon.size < 3 || !lat.isFinite() || !lon.isFinite()) return false
+        var inside = false
+        var j = polygon.lastIndex
+        for (i in polygon.indices) {
+            val xi = polygon[i].longitude
+            val yi = polygon[i].latitude
+            val xj = polygon[j].longitude
+            val yj = polygon[j].latitude
+            val crosses = (yi > lat) != (yj > lat) &&
+                    lon < (xj - xi) * (lat - yi) / ((yj - yi).takeIf { it != 0.0 } ?: 1e-12) + xi
+            if (crosses) inside = !inside
+            j = i
+        }
+        return inside
     }
 
     private fun isSameDay(d1: Date?, d2: Date): Boolean {

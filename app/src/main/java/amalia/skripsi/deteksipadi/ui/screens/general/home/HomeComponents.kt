@@ -205,7 +205,7 @@ fun LatestReportCard(report: DisplayReport, onClick: () -> Unit) {
     val context = LocalContext.current
     val statusColor = when {
         report.isFromLocal || report.status == "ditolak" -> Color(0xFFD32F2F)
-        report.status == "selesai" || report.status == "terverifikasi" -> Color(0xFF388E3C)
+        report.status == "selesai" || report.status == "penanganan_mandiri" -> Color(0xFF388E3C)
         report.status == "perlu_kunjungan" -> Color(0xFF7B1FA2)
         else -> Color(0xFFF57C00)
     }

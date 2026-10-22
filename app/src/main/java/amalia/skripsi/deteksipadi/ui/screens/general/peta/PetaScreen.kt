@@ -1,12 +1,14 @@
 package amalia.skripsi.deteksipadi.ui.screens.general.peta
 
+import amalia.skripsi.deteksipadi.util.LocationAccessPreference
+
 import amalia.skripsi.deteksipadi.data.LaporanDto
 import amalia.skripsi.deteksipadi.data.supabase
 import amalia.skripsi.deteksipadi.services.HazardDetectionService
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Location
 import android.net.ConnectivityManager
@@ -14,8 +16,6 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -33,10 +33,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.ActivityCompat
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -49,15 +49,18 @@ import com.google.maps.android.compose.*
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlin.math.abs
 
 fun isOnlineMap(context: Context): Boolean {
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     val capabilities = cm.getNetworkCapabilities(cm.activeNetwork)
-    return capabilities != null && (
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
-                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-            )
+    return capabilities != null &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }
 
 @Composable
@@ -88,6 +91,8 @@ fun PetaScreen(
 
     val isInDanger by petaViewModel.isDanger.collectAsState()
     val isOnline by rememberMapConnectivityState(context)
+    val mapCache = remember { context.getSharedPreferences("peta_cache", Context.MODE_PRIVATE) }
+    val mapCacheJson = remember { Json { ignoreUnknownKeys = true } }
 
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
     var hasLocationPermission by remember { mutableStateOf(false) }
@@ -95,6 +100,7 @@ fun PetaScreen(
     var isProtectionActive by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var isAutoFollowActive by remember { mutableStateOf(true) }
+    var mapLoadError by remember { mutableStateOf<String?>(null) }
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(0.5333, 123.0667), 10f)
@@ -106,48 +112,93 @@ fun PetaScreen(
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted -> hasLocationPermission = isGranted }
+    LaunchedEffect(isOnline) {
+        if (!isOnline) {
+            runCatching {
+                val cached = mapCache.getString("laporan_peta", null) ?: return@runCatching
+                val cachedReports = mapCacheJson.decodeFromString(ListSerializer(LaporanDto.serializer()), cached)
+                if (cachedReports.isNotEmpty()) petaViewModel.setInitialData(cachedReports)
+            }
+        }
+    }
 
     LaunchedEffect(isOnline) {
         if (isOnline) {
             try {
-                // Menambahkan jenis_pelaporan di query Columns
-                val list = supabase.from("laporan")
-                    .select(columns = Columns.raw("id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, alamat_lengkap, created_at, lat, lon, jenis_pelaporan")) {
-                        filter { neq("status", "ditolak") }
-                    }.decodeList<LaporanDto>()
+                // View khusus peta: hanya data hotspot yang boleh dibagikan lintas pengguna.
+                // vw_laporan_peta_public mengecualikan laporan menunggu/ditolak dan membutuhkan lokasi.
+                val mapColumns = "id, petani_id, foto_url, label_ai, confidence, status, prioritas, termasuk_cluster, created_at, kecamatan_id, radius, jenis_pelaporan, lat, lon, alamat_lengkap, label_koreksi_popt"
+                val list = supabase.from("vw_laporan_peta_public")
+                    .select(columns = Columns.raw(mapColumns))
+                    .decodeList<LaporanDto>()
+                    .filter { report ->
+                        report.lat.isFinite() && report.lon.isFinite() &&
+                                report.lat in -90.0..90.0 && report.lon in -180.0..180.0 &&
+                                !(abs(report.lat) < 1e-6 && abs(report.lon) < 1e-6) &&
+                                report.status != "ditolak" && report.status != "menunggu_verifikasi"
+                    }
                 petaViewModel.setInitialData(list)
-            } catch (e: Exception) { e.printStackTrace() }
+                runCatching {
+                    mapCache.edit().putString("laporan_peta", mapCacheJson.encodeToString(ListSerializer(LaporanDto.serializer()), list)).apply()
+                }
+                mapLoadError = null
+            } catch (e: Exception) {
+                mapLoadError = if (isOnline) "Titik peta belum dapat diperbarui. Periksa koneksi lalu coba lagi." else "Koneksi terputus. Titik yang ditampilkan mungkin merupakan data terakhir yang tersimpan."
+                android.util.Log.e("PetaScreen", "Gagal memuat vw_laporan_peta_public", e)
+                Toast.makeText(context, mapLoadError.orEmpty(), Toast.LENGTH_LONG).show()
+            }
         }
     }
 
     LaunchedEffect(Unit) {
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            hasLocationPermission = true
-        } else {
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
+        // Izin lokasi hanya diminta dari Pengaturan aplikasi, bukan otomatis saat membuka peta.
+        hasLocationPermission = LocationAccessPreference.canUseLocation(context)
     }
 
     LaunchedEffect(hasLocationPermission, petaViewModel.filteredHotspots) {
-        if (hasLocationPermission) {
-            val client = LocationServices.getFusedLocationProviderClient(context)
-            try {
-                client.lastLocation.addOnSuccessListener { loc ->
-                    if (loc != null) {
+        // Periksa izin Android secara eksplisit agar pemanggilan lastLocation
+        // tidak bergantung hanya pada state izin yang mungkin sudah kedaluwarsa.
+        val hasFinePermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarsePermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val locationEnabledInApp = LocationAccessPreference.isEnabled(context)
+        if (!locationEnabledInApp || (!hasFinePermission && !hasCoarsePermission)) {
+            userLocation = null
+            return@LaunchedEffect
+        }
+
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        try {
+            client.lastLocation
+                .addOnSuccessListener { loc ->
+                    if (loc != null && LocationAccessPreference.canUseLocation(context)) {
                         val newLatLng = LatLng(loc.latitude, loc.longitude)
                         userLocation = newLatLng
                         petaViewModel.updateHazardLocation(loc.latitude, loc.longitude)
                         if (isAutoFollowActive) {
                             scope.launch {
-                                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(newLatLng, 16f))
+                                cameraPositionState.animate(
+                                    CameraUpdateFactory.newLatLngZoom(newLatLng, 16f)
+                                )
                             }
                         }
                     }
                 }
-            } catch (_: Exception) {}
+                .addOnFailureListener { error ->
+                    android.util.Log.w("PetaScreen", "Gagal membaca lokasi terakhir", error)
+                }
+        } catch (error: SecurityException) {
+            // Izin mungkin dicabut setelah pemeriksaan izin di atas.
+            userLocation = null
+            android.util.Log.w("PetaScreen", "Izin lokasi tidak tersedia saat membaca lokasi", error)
+        } catch (error: Exception) {
+            android.util.Log.w("PetaScreen", "Tidak dapat membaca lokasi terakhir", error)
         }
     }
 
@@ -208,48 +259,62 @@ fun PetaScreen(
             ),
             onMapClick = { selectedHotspot = null }
         ) {
-            if (isOnline) {
-                petaViewModel.currentPolygons.forEach { polygonPoints ->
-                    Polygon(
-                        points = polygonPoints,
-                        fillColor = Color(0x220078D4),
-                        strokeColor = Color(0xFF0078D4),
-                        strokeWidth = 3f
-                    )
+            petaViewModel.currentPolygons.forEach { polygonPoints ->
+                Polygon(
+                    points = polygonPoints,
+                    fillColor = Color(0x220078D4),
+                    strokeColor = Color(0xFF0078D4),
+                    strokeWidth = 3f
+                )
+            }
+
+            petaViewModel.filteredHotspots.forEach { spot ->
+                val pos = LatLng(spot.lat, spot.lon)
+
+                val fillColor = when(spot.prioritas) {
+                    "tinggi" -> Color(0x4DFF0000)
+                    "sedang" -> Color(0x4DFFA500)
+                    else -> Color(0x4DFFEB3B)
                 }
 
-                petaViewModel.filteredHotspots.forEach { spot ->
-                    val pos = LatLng(spot.lat, spot.lon)
-
-                    val fillColor = when(spot.prioritas) {
-                        "tinggi" -> Color(0x4DFF0000)
-                        "sedang" -> Color(0x4DFFA500)
-                        else -> Color(0x4DFFEB3B)
-                    }
-
-                    val strokeColor = when(spot.prioritas) {
-                        "tinggi" -> Color.Red
-                        "sedang" -> Color(0xFFFFA500)
-                        else -> Color(0xFFFBC02D)
-                    }
-
-                    Circle(
-                        center = pos,
-                        radius = 300.0,
-                        fillColor = fillColor,
-                        strokeColor = strokeColor,
-                        strokeWidth = 4f
-                    )
-                    Marker(
-                        state = MarkerState(position = pos),
-                        title = spot.label_ai,
-                        snippet = if (userRole == "popt") "Klik untuk detail validasi" else "Radius Bahaya 300m",
-                        onClick = {
-                            selectedHotspot = spot
-                            true
-                        }
-                    )
+                val strokeColor = when(spot.prioritas) {
+                    "tinggi" -> Color.Red
+                    "sedang" -> Color(0xFFFFA500)
+                    else -> Color(0xFFFBC02D)
                 }
+
+                Circle(
+                    center = pos,
+                    radius = 300.0,
+                    fillColor = fillColor,
+                    strokeColor = strokeColor,
+                    strokeWidth = 4f
+                )
+                Marker(
+                    state = MarkerState(position = pos),
+                    title = spot.label_efektif,
+                    snippet = "${spot.alamat_lengkap?.takeIf { it.isNotBlank() } ?: "Lokasi laporan"} • ${statusLabelPeta(spot.status)}",
+                    onClick = {
+                        selectedHotspot = spot
+                        true
+                    }
+                )
+            }
+        }
+
+        if (petaViewModel.polygonLoadError != null || mapLoadError != null) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                color = Color(0xFFFFF3CD),
+                shape = RoundedCornerShape(12.dp),
+                shadowElevation = 4.dp
+            ) {
+                Text(
+                    text = petaViewModel.polygonLoadError ?: mapLoadError.orEmpty(),
+                    modifier = Modifier.padding(12.dp),
+                    color = Color(0xFF664D03),
+                    fontSize = 12.sp
+                )
             }
         }
 
@@ -327,9 +392,11 @@ fun PetaScreen(
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     elevation = CardDefaults.cardElevation(8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        if (userRole == "popt") onReportClick(spot)
-                    }
+                    modifier = Modifier.fillMaxWidth().then(
+                        if (userRole.equals("popt", ignoreCase = true) || userRole.equals("admin", ignoreCase = true)) {
+                            Modifier.clickable { onReportClick(spot) }
+                        } else Modifier
+                    )
                 ) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         AsyncImage(
@@ -341,7 +408,7 @@ fun PetaScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                spot.label_ai?.let { Text(text = it, fontWeight = FontWeight.Bold) }
+                                spot.label_efektif?.let { Text(text = it, fontWeight = FontWeight.Bold) }
                                 if (spot.prioritas == "tinggi") {
                                     Spacer(Modifier.width(8.dp))
                                     Surface(color = Color.Red, shape = RoundedCornerShape(4.dp)) {
@@ -352,7 +419,7 @@ fun PetaScreen(
                             Text(text = distanceText, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                             Text(text = spot.alamat_lengkap ?: "Lokasi tidak diketahui", style = MaterialTheme.typography.labelSmall, maxLines = 1, color = Color.Gray)
                         }
-                        if (userRole == "popt") Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary)
+                        if (userRole.equals("popt", ignoreCase = true) || userRole.equals("admin", ignoreCase = true)) Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -438,4 +505,14 @@ fun calculateDistanceString(userLoc: LatLng, spotLoc: LatLng): String {
     val distanceMeters = results[0]
     return if (distanceMeters < 1000) "${distanceMeters.toInt()} m dari Anda"
     else String.format("%.1f km dari Anda", distanceMeters / 1000)
+}
+
+
+private fun statusLabelPeta(status: String): String = when (status.trim().lowercase()) {
+    "menunggu_verifikasi" -> "Menunggu verifikasi"
+    "penanganan_mandiri" -> "Penanganan mandiri"
+    "perlu_kunjungan" -> "Perlu kunjungan POPT"
+    "selesai" -> "Selesai"
+    "ditolak" -> "Ditolak"
+    else -> status.replace('_', ' ')
 }

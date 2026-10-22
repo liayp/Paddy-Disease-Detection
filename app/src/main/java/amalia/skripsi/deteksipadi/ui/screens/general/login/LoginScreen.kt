@@ -2,18 +2,15 @@ package amalia.skripsi.deteksipadi.ui.screens.general.login
 
 import amalia.skripsi.deteksipadi.R
 import amalia.skripsi.deteksipadi.data.AuthRepository
-import android.widget.Toast
+import android.util.Patterns
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -33,129 +31,70 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val authRepo = remember { AuthRepository(context) }
-
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var fullName by remember { mutableStateOf("") }
-
     var isLoading by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0=Masuk, 1=Daftar
-
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
-    var nameError by remember { mutableStateOf<String?>(null) }
     var generalError by remember { mutableStateOf<String?>(null) }
 
     fun validateInputs(): Boolean {
-        var isValid = true
         emailError = null
         passwordError = null
-        nameError = null
-
-        if (email.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+        if (email.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()) {
             emailError = "Email tidak valid"
-            isValid = false
         }
-        if (password.length < 6) {
-            passwordError = "Password minimal 6 karakter"
-            isValid = false
-        }
-        if (selectedTab == 1 && fullName.isBlank()) {
-            nameError = "Nama wajib diisi"
-            isValid = false
-        }
-        return isValid
+        if (password.length < 6) passwordError = "Password minimal 6 karakter"
+        return emailError == null && passwordError == null
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = if (selectedTab == 0) "Selamat Datang" else "Daftar Petani",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
+        Text("Selamat Datang", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(12.dp))
+        Text("Masuk untuk melanjutkan ke aplikasi Deteksi Padi", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(28.dp))
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        TabRow(selectedTabIndex = selectedTab) {
-            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Masuk") })
-            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Daftar") })
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        if (generalError != null) {
-            Text(generalError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        if (selectedTab == 1) {
-            OutlinedTextField(
-                value = fullName,
-                onValueChange = { fullName = it; nameError = null },
-                label = { Text("Nama Lengkap") },
-                leadingIcon = { Icon(Icons.Default.Person, null) },
-                isError = nameError != null,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+        generalError?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(12.dp))
         }
 
         OutlinedTextField(
-            value = email,
-            onValueChange = { email = it; emailError = null },
-            label = { Text("Email") },
-            leadingIcon = { Icon(Icons.Default.Email, null) },
+            value = email, onValueChange = { email = it; emailError = null; generalError = null },
+            label = { Text("Email") }, leadingIcon = { Icon(Icons.Default.Email, null) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            isError = emailError != null,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            isError = emailError != null, supportingText = { emailError?.let { Text(it) } },
+            modifier = Modifier.fillMaxWidth(), singleLine = true
         )
+        Spacer(Modifier.height(12.dp))
 
         OutlinedTextField(
-            value = password,
-            onValueChange = { password = it; passwordError = null },
-            label = { Text("Password") },
-            leadingIcon = { Icon(Icons.Default.Lock, null) },
+            value = password, onValueChange = { password = it; passwordError = null; generalError = null },
+            label = { Text("Password") }, leadingIcon = { Icon(Icons.Default.Lock, null) },
             trailingIcon = {
                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
                     Icon(if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, null)
                 }
             },
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            isError = passwordError != null,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            isError = passwordError != null, supportingText = { passwordError?.let { Text(it) } },
+            modifier = Modifier.fillMaxWidth(), singleLine = true
         )
-
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(Modifier.height(24.dp))
 
         Button(
             onClick = {
                 if (validateInputs()) {
                     scope.launch {
                         isLoading = true
-                        if (selectedTab == 0) {
-                            authRepo.loginEmail(email, password)
-                                .onSuccess { onLoginSuccess() }
-                                .onFailure { generalError = "Email/Password salah atau belum terdaftar" }
-                        } else {
-                            authRepo.registerEmail(email, password, fullName, "petani")
-                                .onSuccess {
-                                    Toast.makeText(context, "Berhasil! Silakan masuk.", Toast.LENGTH_SHORT).show()
-                                    selectedTab = 0
-                                }
-                                .onFailure { generalError = it.localizedMessage }
-                        }
+                        authRepo.loginEmail(email, password)
+                            .onSuccess { onLoginSuccess() }
+                            .onFailure { generalError = it.message ?: "Email atau password tidak valid" }
                         isLoading = false
                     }
                 }
@@ -163,16 +102,12 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             modifier = Modifier.fillMaxWidth().height(50.dp),
             enabled = !isLoading
         ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp)
-                )
-            } else {
-                Text(if (selectedTab == 0) "Masuk" else "Daftar")
-            }
+            if (isLoading) CircularProgressIndicator(Modifier.size(24.dp)) else Text("Masuk")
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("atau", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(16.dp))
 
         OutlinedButton(
             onClick = {
@@ -180,15 +115,23 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     isLoading = true
                     authRepo.signInWithGoogle()
                         .onSuccess { onLoginSuccess() }
-                        .onFailure { generalError = "Google Login Gagal" }
+                        .onFailure { generalError = it.message ?: "Google Login gagal" }
                     isLoading = false
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(50.dp)
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            enabled = !isLoading
         ) {
-            Icon(painterResource(R.drawable.ic_google_logo), null, modifier = Modifier.size(24.dp), tint = Color.Unspecified)
-            Spacer(modifier = Modifier.width(8.dp))
+            Icon(painterResource(R.drawable.ic_google_logo), null, Modifier.size(24.dp), tint = Color.Unspecified)
+            Spacer(Modifier.width(8.dp))
             Text("Masuk dengan Google")
         }
+
+        Spacer(Modifier.height(20.dp))
+        Text(
+            "Akun Petani dapat masuk menggunakan Google atau email dan password. Akun POPT dibuat oleh administrator.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

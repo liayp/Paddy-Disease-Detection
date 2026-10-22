@@ -31,7 +31,8 @@ class HazardRepository @Inject constructor() {
                 minDistance = distance
             }
 
-            if (distance <= 300.0) {
+            val radiusMeters = (spot.radius * 1000.0).coerceAtLeast(50.0)
+            if (distance <= radiusMeters) {
                 dangerDetected = true
             }
         }

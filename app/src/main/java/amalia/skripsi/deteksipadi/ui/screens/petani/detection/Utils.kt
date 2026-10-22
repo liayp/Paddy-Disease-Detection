@@ -21,6 +21,32 @@ import java.util.Locale
 
 object ImageUtils {
 
+    // FUNGSI BARU: Resize gambar agar dimensi maksimal 1080px (Hemat Bandwidth & Kuota)
+    private fun scaleDownBitmap(bitmap: Bitmap, maxDimension: Int = 1080): Bitmap {
+        val originalWidth = bitmap.width
+        val originalHeight = bitmap.height
+        var resizedWidth = maxDimension
+        var resizedHeight = maxDimension
+
+        if (originalHeight > originalWidth) {
+            resizedHeight = maxDimension
+            resizedWidth = (resizedHeight * originalWidth.toFloat() / originalHeight.toFloat()).toInt()
+        } else if (originalWidth > originalHeight) {
+            resizedWidth = maxDimension
+            resizedHeight = (resizedWidth * originalHeight.toFloat() / originalWidth.toFloat()).toInt()
+        } else if (originalHeight == originalWidth) {
+            resizedWidth = maxDimension
+            resizedHeight = maxDimension
+        }
+
+        // Jangan perbesar gambar jika aslinya sudah lebih kecil dari maxDimension
+        if (originalWidth <= maxDimension && originalHeight <= maxDimension) {
+            return bitmap
+        }
+
+        return Bitmap.createScaledBitmap(bitmap, resizedWidth, resizedHeight, false)
+    }
+
     fun rotateBitmap(source: Bitmap, angle: Float): Bitmap {
         if (angle == 0f) return source
         val matrix = Matrix().apply { postRotate(angle) }
@@ -44,7 +70,13 @@ object ImageUtils {
             }
             exifStream?.close()
 
-            if (originalBmp != null) rotateBitmap(originalBmp, rotation) else null
+            if (originalBmp != null) {
+                // Resize dulu baru rotate untuk menghemat memori proses
+                val scaledBmp = scaleDownBitmap(originalBmp)
+                rotateBitmap(scaledBmp, rotation)
+            } else {
+                null
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -56,38 +88,34 @@ object ImageUtils {
         val buffer: ByteBuffer = planeProxy.buffer
         buffer.rewind()
 
+        var rawBitmap: Bitmap? = null
+
         if (image.format == ImageFormat.JPEG) {
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
-            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        }
-
-        if (image.format == PixelFormat.RGBA_8888) {
+            rawBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } else if (image.format == PixelFormat.RGBA_8888) {
             val bitmap = createBitmap(image.width, image.height)
             bitmap.copyPixelsFromBuffer(buffer)
-            return bitmap
-        }
-
-        if (image.format == ImageFormat.YUV_420_888 || image.format == 0x22) {
+            rawBitmap = bitmap
+        } else if (image.format == ImageFormat.YUV_420_888 || image.format == 0x22) {
             val width = image.width
             val height = image.height
             val pixelStride = planeProxy.pixelStride
             val rowStride = planeProxy.rowStride
             val rowPadding = rowStride - pixelStride * width
-
             val bitmap = createBitmap(width + rowPadding / pixelStride, height)
             bitmap.copyPixelsFromBuffer(buffer)
-
-            return if (rowPadding == 0) {
+            rawBitmap = if (rowPadding == 0) {
                 bitmap
             } else {
                 Bitmap.createBitmap(bitmap, 0, 0, width, height)
             }
         }
 
-        return null
+        // Aplikasikan kompresi resolusi
+        return rawBitmap?.let { scaleDownBitmap(it) }
     }
-
 
     fun drawDetectionOnBitmap(originalBitmap: Bitmap, results: List<DetectionResult>): Bitmap {
         val mutableBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
@@ -115,14 +143,12 @@ object ImageUtils {
 
         for (result in results) {
             val box = result.box
-
             val left = box.left * imgWidth
             val top = box.top * imgHeight
             val right = box.right * imgWidth
             val bottom = box.bottom * imgHeight
 
             val pixelRect = android.graphics.RectF(left, top, right, bottom)
-
             canvas.drawRect(pixelRect, boxPaint)
 
             val labelText = "${result.label} ${(result.score * 100).toInt()}%"
@@ -136,7 +162,6 @@ object ImageUtils {
                 top,
                 textBgPaint
             )
-
             canvas.drawText(labelText, left + 10f, top - 10f, textPaint)
         }
 
@@ -187,7 +212,6 @@ object ImageUtils {
 
             val exif = ExifInterface(tempFile.absolutePath)
             val latLong = FloatArray(2)
-
             val hasLatLong = exif.getLatLong(latLong)
 
             tempFile.delete()

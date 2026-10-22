@@ -13,12 +13,17 @@ sealed class BottomNavItem(
 ) {
     object Home : BottomNavItem("home", "Home", Icons.Filled.Home, Icons.Outlined.Home)
     object Peta : BottomNavItem("peta", "Radar", Icons.Filled.Map, Icons.Outlined.Map)
+
+    // RUTE BARU: Edukasi untuk Petani
+    object Edukasi : BottomNavItem("edukasi", "Edukasi", Icons.Filled.MenuBook, Icons.Outlined.MenuBook)
+
     object Reports : BottomNavItem("popt_reports", "Validasi", Icons.Filled.Assignment, Icons.Outlined.Assignment)
     object History : BottomNavItem("history", "Riwayat", Icons.Filled.History, Icons.Outlined.History)
     object Profile : BottomNavItem("profile", "Profil", Icons.Filled.Person, Icons.Outlined.Person)
 
     companion object {
-        fun petaniRoutes() = listOf(Home, Peta, History, Profile)
+        // Petani mendapat akses Edukasi di tengah menu
+        fun petaniRoutes() = listOf(Home, Peta, Edukasi, History, Profile)
         fun poptRoutes() = listOf(Home, Peta, Reports, Profile)
     }
 }

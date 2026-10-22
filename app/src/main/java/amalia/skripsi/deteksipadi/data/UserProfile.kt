@@ -15,6 +15,7 @@ data class UserProfile(
     val is_active: Boolean = true,
     val created_at: String? = null,
     val fcm_token: String? = null,
+    val push_notifications_enabled: Boolean = true,
     val poktan_id: String? = null,
     val master_poktan: MasterPoktanDto? = null, // Relasi Ditarik
     val wkpp_kecamatan: List<String>? = null
@@ -33,6 +34,7 @@ data class ProfileDto(
     val is_active: Boolean = true,
     val created_at: String? = null,
     val fcm_token: String? = null,
+    val push_notifications_enabled: Boolean = true,
     val poktan_id: String? = null,
     val master_poktan: MasterPoktanDto? = null
 )
@@ -47,4 +49,9 @@ data class PoptProfile(
 data class PoptWilayahDto(
     val kecamatan_id: String,
     val kecamatan: KecamatanSimpleDto? = null
+)
+
+@Serializable
+data class NotificationPreferenceDto(
+    val push_notifications_enabled: Boolean = true
 )
